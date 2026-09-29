@@ -1,0 +1,22 @@
+name: ShellCheck
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run shellcheck on all *.sh files
+        run: |
+          shellcheck --version
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning
