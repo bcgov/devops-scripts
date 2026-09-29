@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Test stub for oc. Logs every call to $STUB_LOG.
+set -euo pipefail
+echo "oc $*" >> "${STUB_LOG}"
+case "$1" in
+  whoami) exit "${OC_WHOAMI_RC:-1}" ;;
+  projects) cat "${FIXTURES}/oc-projects" ;;
+  get) ns="${4:-}"; [[ -f "${FIXTURES}/rb-${ns}" ]] || { echo "Forbidden" >&2; exit 1; }; cat "${FIXTURES}/rb-${ns}" ;;
+  *) echo "stub oc: unexpected: $*" >&2; exit 98 ;;
+esac

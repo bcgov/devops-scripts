@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Test stub for gh. Answers from files in $FIXTURES and logs every call to $STUB_LOG.
+set -euo pipefail
+echo "gh $*" >> "${STUB_LOG}"
+[[ "${1:-}" == "auth" ]] && exit "${GH_AUTH_RC:-0}"
+[[ "${1:-}" == "api" ]] || { echo "stub gh: unsupported: $*" >&2; exit 99; }
+shift
+args="$*"
+not_found() { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+emit() { if [[ -f "${FIXTURES}/$1" ]]; then cat "${FIXTURES}/$1"; else [[ "${2:-}" == "404" ]] && not_found; fi; exit 0; }
+if [[ -n "${GH_FAIL_MATCH:-}" && "$args" == *"${GH_FAIL_MATCH}"* ]]; then
+  echo "gh: Server Error (HTTP 500)" >&2; exit 1
+fi
+case "$args" in
+  users/*) [[ "$args" == users/missing-user* ]] && not_found; echo '{}' ;;
+  *user/repos*) emit user-repos ;;
+  *orgs/*/members/*)
+    org="${args#*orgs/}"; org="${org%%/*}"
+    grep -qxF "$org" "${FIXTURES}/member-orgs" 2>/dev/null || not_found ;;
+  graphql*teams*)
+    org="$(printf '%s\n' "$@" | sed -n 's/^o=//p')"
+    emit "teams-${org}" ;;
+  graphql*CODEOWNERS*)
+    repo="$(printf '%s\n' "$@" | sed -n 's/^n=//p')"
+    if [[ -f "${FIXTURES}/codeowners-${repo}" ]]; then
+      jq -Rsc '{data:{repository:{a:null,b:{text:.},c:null,d:null,e:null,f:null}}}' "${FIXTURES}/codeowners-${repo}"
+    else
+      echo '{"data":{"repository":{"a":null,"b":null,"c":null,"d":null,"e":null,"f":null}}}'
+    fi ;;
+  *collaborators\?affiliation=all*) repo="${args#*repos/*/}"; emit "collab-all-${repo%%/*}" 404 ;;
+  *collaborators\?affiliation=direct*) repo="${args#*repos/*/}"; emit "collab-direct-${repo%%/*}" ;;
+  *environments*) repo="${args#*repos/*/}"; emit "env-${repo%%/*}" ;;
+  *search/code*) [[ -f "${FIXTURES}/search-code" ]] && emit search-code; echo '{"items":[]}' ;;
+  *search/issues*review-requested*) emit search-review ;;
+  *search/issues*) emit search-assigned ;;
+  rate_limit*) date +%s ;;
+  *) echo "stub gh: unexpected api call: $args" >&2; exit 98 ;;
+esac

@@ -18,6 +18,10 @@ Scripts a person runs from a workstation with their own login (for example an ac
 - [`rights_reporter.sh`](oc/rights_reporter.sh): report user role bindings and risk indicators across accessible namespaces.
 - Postgres migration walkthrough: [`oc/README.md`](oc/README.md)
 
+### Offboarding ([`offboard/`](offboard))
+
+- [`offboard-audit.sh`](offboard/offboard-audit.sh): read-only report of where a departed person still has GitHub or OpenShift access or ownership.
+
 ## Checks
 
-Pull requests and pushes to `main` run `shellcheck --severity=warning` on every `*.sh` file.
+Pull requests and pushes to `main` run `shellcheck --severity=warning` on every `*.sh` file and the `*.bats` tests.

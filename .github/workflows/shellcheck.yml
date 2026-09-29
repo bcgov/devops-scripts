@@ -20,3 +20,23 @@ jobs:
         run: |
           shellcheck --version
           git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning
+
+  bats:
+    name: Bats
+    runs-on: ubuntu-24.04
+    env:
+      BATS_VERSION: v1.14.0
+      BATS_SHA: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install bats
+        run: |
+          git clone -q --depth 1 --branch "${BATS_VERSION}" https://github.com/bats-core/bats-core.git "${RUNNER_TEMP}/bats"
+          test "$(git -C "${RUNNER_TEMP}/bats" rev-parse HEAD)" = "${BATS_SHA}"
+          echo "${RUNNER_TEMP}/bats/bin" >> "${GITHUB_PATH}"
+      - name: Run bats tests
+        run: |
+          bats --version
+          git ls-files -z '*.bats' | xargs -0 bats
