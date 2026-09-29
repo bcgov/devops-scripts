@@ -1,6 +1,17 @@
 # Offboarding
 
-Two read-only reports. They share no calls. A GitHub login and an OpenShift subject often look alike, and that is the only overlap.
+`offboard.sh` runs both reports. The two scripts underneath share no calls.
+
+```bash
+./offboard/offboard.sh
+# asks: GitHub logins, then gov.bc.ca names (the part before the @)
+
+./offboard/offboard.sh --github-file github.txt --gov-file gov.txt
+```
+
+One name per line in each file. A gov file is optional. If `oc` is not logged in, the GitHub report is still printed and OpenShift is skipped, with the command to run where that login exists.
+
+## `offboard-github.sh`
 
 ## `offboard-github.sh`
 
@@ -56,20 +67,16 @@ RoleBindings on the cluster your `oc` login points at. Run this on the machine w
 
 ```bash
 oc login ...
-./offboard/offboard-openshift.sh [options] [github-username ...]
-
-./offboard/offboard-openshift.sh thermcampos rmcampos --email first.last@gov.bc.ca
-
-./offboard/offboard-openshift.sh --idir EXAMPLEIDIR --email first.last@gov.bc.ca example-user
+./offboard/offboard-openshift.sh --github-file github.txt --gov-file gov.txt
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--email ADDR` | Match this address as a User subject (repeatable). |
-| `--idir NAME` | Also match `NAME` and `NAME@idir` (repeatable). |
+| `--github-file FILE` | One GitHub login per line. Matches that name and `name@github`. |
+| `--gov-file FILE` | One gov.bc.ca name per line, the part before the `@`. Matches `name@gov.bc.ca` only. |
 | `--json` | JSON output instead of text. |
 
-Each GitHub username is matched as that name and as `name@github`. An email is matched only as itself. Matching ignores case. Each input is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+A GitHub login is not compared to `@gov.bc.ca`, and a gov name is not compared to `@github`. Matching ignores case. Each name is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
 
 Requires `oc` logged in, and `jq`.
 

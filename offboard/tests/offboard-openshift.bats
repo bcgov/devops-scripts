@@ -12,38 +12,44 @@ setup() {
   PATH="${BATS_TEST_DIRNAME}/stubs:${PATH}"
   export PATH
   export OC_WHOAMI_RC=0
+  printf 'example-user\n' > "${BATS_TEST_TMPDIR}/github.txt"
+  printf 'first.last\n' > "${BATS_TEST_TMPDIR}/gov.txt"
 }
 
-@test "no subjects is a usage error" {
+@test "no lists is a usage error" {
   run "$SCRIPT"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"at least one GitHub username"* ]]
+  [[ "$output" == *"--github-file or --gov-file"* ]]
 }
 
 @test "oc not logged in is an error" {
-  OC_WHOAMI_RC=1 run "$SCRIPT" example-user
+  OC_WHOAMI_RC=1 run "$SCRIPT" --github-file "${BATS_TEST_TMPDIR}/github.txt"
   [ "$status" -eq 2 ]
   [[ "$output" == *"not logged in"* ]]
 }
 
-@test "github id, email, and idir are separate sections from one namespace read" {
+@test "github and gov lists stay on their own domains" {
   printf 'ns-a\nns-b\nns-c\n' > "$FIXTURES/oc-projects"
   cat > "$FIXTURES/rb-ns-a" <<'JSON'
 {"items":[
   {"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"}]},
   {"metadata":{"name":"rb2"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"First.Last@gov.bc.ca"}]},
-  {"metadata":{"name":"rb4"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"someone-else"}]}
+  {"metadata":{"name":"rb4"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"example-user@gov.bc.ca"}]},
+  {"metadata":{"name":"rb5"},"roleRef":{"name":"view"},"subjects":[{"kind":"User","name":"first.last@github"}]},
+  {"metadata":{"name":"rb6"},"roleRef":{"name":"view"},"subjects":[{"kind":"User","name":"someone-else"}]}
 ]}
 JSON
   cat > "$FIXTURES/rb-ns-b" <<'JSON'
-{"items":[{"metadata":{"name":"rb3"},"roleRef":{"name":"view"},"subjects":[{"kind":"User","name":"EXAMPLEIDIR@idir"},{"kind":"Group","name":"example-user"}]}]}
+{"items":[{"metadata":{"name":"rb3"},"roleRef":{"name":"view"},"subjects":[{"kind":"Group","name":"example-user"}]}]}
 JSON
-  run --separate-stderr "$SCRIPT" --json --idir exampleidir --email First.Last@gov.bc.ca example-user
+  run --separate-stderr "$SCRIPT" --json \
+    --github-file "${BATS_TEST_TMPDIR}/github.txt" \
+    --gov-file "${BATS_TEST_TMPDIR}/gov.txt"
   [ "$status" -eq 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "example-user") | .findings[]] | length')" = 1 ]
-  [ "$(echo "$output" | jq '[.sections[] | select(.name == "First.Last@gov.bc.ca") | .findings[]] | length')" = 1 ]
-  [ "$(echo "$output" | jq '[.sections[] | select(.name == "exampleidir") | .findings[]] | length')" = 1 ]
+  [ "$(echo "$output" | jq '[.sections[] | select(.name == "first.last") | .findings[]] | length')" = 1 ]
   echo "$output" | jq -e '.sections[] | select(.name == "example-user") | .findings[] | select(.detail | test("subject example-user@github"))'
+  [ "$(echo "$output" | jq '[.sections[].findings[] | select(.detail | test("example-user@gov.bc.ca|first.last@github|someone-else"))] | length')" = 0 ]
   echo "$output" | jq -e '.notes[] | select(test("not readable in 1 namespace"))'
   run grep -c 'oc get rolebindings' "$STUB_LOG"
   [ "$output" = 3 ]
@@ -51,22 +57,26 @@ JSON
 
 @test "subject matching is case insensitive" {
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  printf 'Example-User\n' > "${BATS_TEST_TMPDIR}/github.txt"
+  printf 'First.Last\n' > "${BATS_TEST_TMPDIR}/gov.txt"
   cat > "$FIXTURES/rb-ns-a" <<'JSON'
 {"items":[
   {"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@GITHUB"}]},
   {"metadata":{"name":"rb2"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"first.last@gov.bc.ca"}]}
 ]}
 JSON
-  run --separate-stderr "$SCRIPT" --json --email FIRST.LAST@GOV.BC.CA Example-User
+  run --separate-stderr "$SCRIPT" --json \
+    --github-file "${BATS_TEST_TMPDIR}/github.txt" \
+    --gov-file "${BATS_TEST_TMPDIR}/gov.txt"
   [ "$status" -eq 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "Example-User") | .findings[]] | length')" = 1 ]
-  [ "$(echo "$output" | jq '[.sections[] | select(.name == "FIRST.LAST@GOV.BC.CA") | .findings[]] | length')" = 1 ]
+  [ "$(echo "$output" | jq '[.sections[] | select(.name == "First.Last") | .findings[]] | length')" = 1 ]
 }
 
 @test "only read-only calls are made" {
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
-  run "$SCRIPT" example-user
+  run "$SCRIPT" --github-file "${BATS_TEST_TMPDIR}/github.txt"
   [ -z "$(grep -E -- '-X (POST|PUT|PATCH|DELETE)|--method|--input' "$STUB_LOG")" ]
   [ -z "$(grep -E '^oc ' "$STUB_LOG" | grep -vE '^oc (whoami|projects -q|get rolebindings -n [a-z0-9-]+ -o json)$')" ]
   [ -z "$(grep '^gh ' "$STUB_LOG" || true)" ]
