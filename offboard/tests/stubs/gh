@@ -12,7 +12,10 @@ if [[ -n "${GH_FAIL_MATCH:-}" && "$args" == *"${GH_FAIL_MATCH}"* ]]; then
   echo "gh: Server Error (HTTP 500)" >&2; exit 1
 fi
 case "$args" in
-  users/*) [[ "$args" == users/missing-user* ]] && not_found; echo '{}' ;;
+  users/*)
+    name="${args#users/}"; name="${name%% *}"
+    [[ "$name" == missing-* || "$name" == old-* ]] && not_found
+    echo "${STUB_USER_ID:-4242}" ;;
   *user/repos*) emit user-repos ;;
   *orgs/*/members/*)
     org="${args#*orgs/}"; org="${org%%/*}"

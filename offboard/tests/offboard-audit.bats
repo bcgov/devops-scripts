@@ -70,10 +70,48 @@ JSON
   [[ "$output" == *"not logged in"* ]]
 }
 
-@test "unknown GitHub user is a usage error" {
-  run "$SCRIPT" missing-user
+@test "a login that is not found prints the rename hint and still runs the text checks" {
+  printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
+  printf 'example-admin\tadmin\n' > "$FIXTURES/collab-all-repo-one"
+  printf '*  @missing-user\n' > "$FIXTURES/codeowners-repo-one"
+  printf 'example-org\n' > "$FIXTURES/member-orgs"
+  run --separate-stderr "$SCRIPT" --json missing-user
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"user not found; they may have been renamed. Re-run with the new login and --alias missing-user"* ]]
+  [ "$(echo "$output" | jq '.users[0].id')" = null ]
+  [ "$(echo "$output" | jq -c '[.users[0].findings[].check]')" = '["codeowners"]' ]
+  echo "$output" | jq -e '.notes[] | select(test("missing-user: user not found"))'
+  run grep -cE 'members/missing-user|userLogins|search/issues' "$STUB_LOG"
+  [ "$output" = 0 ]
+}
+
+@test "--alias with more than one user is a usage error" {
+  run "$SCRIPT" --alias old-user example-user example-user-two
   [ "$status" -eq 2 ]
-  [[ "$output" == *"no such GitHub user"* ]]
+}
+
+@test "the numeric user ID is printed" {
+  printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
+  STUB_USER_ID=987654 run --separate-stderr "$SCRIPT" example-user
+  [[ "$output" == *"== example-user (id 987654)"* ]]
+  STUB_USER_ID=987654 run --separate-stderr "$SCRIPT" --json example-user
+  [ "$(echo "$output" | jq '.users[0].id')" = 987654 ]
+}
+
+@test "--alias matches CODEOWNERS and code search, and reports which name matched" {
+  printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
+  printf '*  @Old-User\n/docs/ @example-user\n' > "$FIXTURES/codeowners-repo-one"
+  cat > "$FIXTURES/search-code" <<'JSON'
+{"items":[{"repository":{"full_name":"example-org/repo-three"},"path":"CODEOWNERS","text_matches":[{"fragment":"* @old-user"}]}]}
+JSON
+  run --separate-stderr "$SCRIPT" --json --alias old-user example-user
+  [ "$status" -eq 1 ]
+  [ "$(echo "$output" | jq -c '[.users[0].findings[] | select(.check == "codeowners") | .matched] | sort')" = '["example-user","old-user"]' ]
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "codeowners-search" and .target == "example-org/repo-three" and .matched == "old-user")'
+  [ "$(echo "$output" | jq -c '.users[0].aliases')" = '["old-user"]' ]
+  grep -q 'q=old-user filename:CODEOWNERS' "$STUB_LOG"
+  run --separate-stderr "$SCRIPT" --alias old-user example-user
+  [[ "$output" == *"[matched old-user]"* ]]
 }
 
 @test "nothing found exits 0 and notes the OpenShift skip" {
@@ -141,15 +179,55 @@ JSON
   echo "$output" | jq -e '.notes[] | select(test("not readable in 1 namespace"))'
 }
 
+@test "OpenShift subjects match aliases, emails case-insensitively, and report the form" {
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  cat > "$FIXTURES/rb-ns-a" <<'JSON'
+{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"Old-User@GitHub"}]},
+          {"metadata":{"name":"rb2"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"First.Last@Gov.BC.CA"}]},
+          {"metadata":{"name":"rb3"},"roleRef":{"name":"view"},"subjects":[{"kind":"User","name":"other@gov.bc.ca"}]}]}
+JSON
+  OC_WHOAMI_RC=0 run --separate-stderr "$SCRIPT" --json --alias old-user --email first.last@gov.bc.ca example-user
+  [ "$status" -eq 1 ]
+  [ "$(echo "$output" | jq -c '[.users[0].findings[] | select(.check == "openshift-rolebinding") | {target, matched}] | sort_by(.matched)')" = '[{"target":"ns-a","matched":"first.last@gov.bc.ca"},{"target":"ns-a","matched":"old-user@github"}]' ]
+  echo "$output" | jq -e '.users[0].findings[] | select(.detail | test("subject Old-User@GitHub"))'
+}
+
+@test "group users lists are checked when groups can be listed" {
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
+  cat > "$FIXTURES/oc-groups" <<'JSON'
+{"items":[{"metadata":{"name":"team-admins"},"users":["someone@github","EXAMPLE-USER@github"]},
+          {"metadata":{"name":"other"},"users":["someone@github"]}]}
+JSON
+  OC_WHOAMI_RC=0 run --separate-stderr "$SCRIPT" --json example-user
+  [ "$status" -eq 1 ]
+  [ "$(echo "$output" | jq -c '[.users[0].findings[] | select(.check == "openshift-group") | {target, matched}]')" = '[{"target":"team-admins","matched":"example-user@github"}]' ]
+  echo "$output" | jq -e '.notes[] | select(. == "OpenShift: can'"'"'t list users in this context; skipped")'
+}
+
+@test "groups that cannot be listed give one note, not an error" {
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
+  OC_WHOAMI_RC=0 run --separate-stderr "$SCRIPT" --json example-user
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq '[.notes[] | select(. == "OpenShift: can'"'"'t list groups in this context; skipped")] | length')" = 1 ]
+  run grep -c '^oc get groups' "$STUB_LOG"
+  [ "$output" = 0 ]
+}
+
 @test "only read-only calls are made" {
   seed_findings
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
-  OC_WHOAMI_RC=0 run "$SCRIPT" --json example-user
+  echo '{"items":[]}' > "$FIXTURES/oc-groups"
+  echo '{"items":[{"metadata":{"name":"example-user@github"},"identities":["github:example-user"]}]}' > "$FIXTURES/oc-users"
+  OC_WHOAMI_RC=0 run --separate-stderr "$SCRIPT" --json example-user
   grep -q '^oc get rolebindings' "$STUB_LOG"
+  grep -q '^oc get groups -o json$' "$STUB_LOG"
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "openshift-user" and .target == "example-user@github")' 
   [ -z "$(grep -E -- '-X (POST|PUT|PATCH|DELETE)|--method|--input|-F ' "$STUB_LOG")" ]
   [ -z "$(grep -E '^gh api' "$STUB_LOG" | grep -E -- ' -f ' | grep -vE 'graphql|search/|-X GET')" ]
-  [ -z "$(grep -E '^oc ' "$STUB_LOG" | grep -vE '^oc (whoami|projects -q|get rolebindings -n [a-z0-9-]+ -o json)$')" ]
+  [ -z "$(grep -E '^oc ' "$STUB_LOG" | grep -vE '^oc (whoami|projects -q|get rolebindings -n [a-z0-9-]+ -o json|auth can-i list (groups|users)|get (groups|users) -o json)$')" ]
 }
 
 @test "an API failure exits 3" {

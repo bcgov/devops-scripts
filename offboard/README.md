@@ -17,9 +17,12 @@ Read-only report of every place a departed person still has access or ownership.
 # Repository list from a file (one OWNER/NAME per line, # comments allowed)
 ./offboard/offboard-audit.sh --repo-file repos.txt example-user
 
-# Also match an IDIR name in OpenShift RoleBindings
+# Also match an IDIR name and IDIR email in OpenShift
 oc login ...
-./offboard/offboard-audit.sh --idir EXAMPLEIDIR example-user
+./offboard/offboard-audit.sh --idir EXAMPLEIDIR --email first.last@gov.bc.ca example-user
+
+# Renamed account: audit the new login, and match the old one in text references
+./offboard/offboard-audit.sh --alias old-login new-login
 ```
 
 | Option | Meaning |
@@ -27,10 +30,22 @@ oc login ...
 | `--org ORG` | Organization to check (repeatable). Default: `OFFBOARD_ORGS` (space- or comma-separated), else `bcgov bcgov-c bcgov-nr`. |
 | `--repo OWNER/NAME` | Repository for the per-repo checks (repeatable). |
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
-| `--idir NAME` | Also match `NAME` and `NAME@idir` in OpenShift RoleBindings. Single username only. |
+| `--alias OLDNAME` | Former login of a renamed account (repeatable). Text-based checks also match it. Single username only. |
+| `--idir NAME` | Also match `NAME` and `NAME@idir` in OpenShift subjects. Single username only. |
+| `--email ADDR` | Also match this address (e.g. an IDIR email) in OpenShift subjects (repeatable). Single username only. |
 | `--json` | JSON output instead of text. |
 
 Exit codes: `0` nothing found, `1` access found, `2` usage or dependency error, `3` a GitHub API call failed.
+
+The report starts each user with their numeric GitHub user ID (`GET /users/{login}`), which stays the same when an account is renamed. Findings from text-based checks show which name or form matched (`[matched ...]` in text, `matched` in JSON).
+
+## Renamed accounts
+
+GitHub moves organization membership, teams, collaborator access, assignments and review requests to the new login, but text references keep the old name. Audit the new login and pass the old one with `--alias`: CODEOWNERS (checked repositories and code search), environment reviewers and OpenShift subjects then match both names.
+
+If a login is not found, the script prints `user not found; they may have been renamed. Re-run with the new login and --alias <old>`, then still runs the text-based checks for that name. Checks that need a live account (organization membership, teams, repository access, assigned issues and review requests) are skipped for it.
+
+If an alias is itself a live account (the old name was taken by someone else), a note says so, since matches on that name may belong to the other account.
 
 ## Checks
 
@@ -44,7 +59,9 @@ Exit codes: `0` nothing found, `1` access found, `2` usage or dependency error, 
 | CODEOWNERS (code search) | Code search for `@user` in CODEOWNERS files across the organizations |
 | Assigned | Open issues and pull requests assigned to the user |
 | Review requested | Open pull requests waiting on the user's review |
-| OpenShift RoleBindings | Only when `oc whoami` succeeds: RoleBindings in the namespaces listed by `oc projects` whose `User` subjects are `user`, `user@github`, or the `--idir` name. Otherwise a skip note is printed. |
+| OpenShift RoleBindings | Only when `oc whoami` succeeds: RoleBindings in the namespaces listed by `oc projects` whose `User` subjects match (case-insensitively) the login or an alias, bare or as `<name>@github`, the `--idir` name bare or as `<name>@idir`, or an `--email`. Otherwise a skip note is printed. |
+| OpenShift groups | Groups whose `users` list contains one of the same subject forms. Groups are not expanded. Only when `oc auth can-i list groups` says yes; otherwise one note: `can't list groups in this context; skipped`. |
+| OpenShift users | User objects whose name or identity matches one of the same forms. Only when `oc auth can-i list users` says yes; otherwise a note. |
 
 The target repositories are those given with `--repo` or `--repo-file`. Without either, they are the repositories in the configured organizations where you have admin (`gh api user/repos` with `permissions.admin`).
 
@@ -64,7 +81,8 @@ The per-repo checks make 3 to 4 API calls per repository, about 2 seconds per re
 - Repository access needs push access to the repository. Repositories given with `--repo` that you cannot push to get a note instead of a result.
 - Code search covers default branches of indexed repositories, and matches only when the `@user` entry is in the returned text fragment. It is limited to 10 requests a minute; the script waits when the limit is reached.
 - Issue and pull request search returns at most 1,000 results per query.
-- OpenShift covers the cluster your `oc` login points at, and namespaces where you can read RoleBindings; unreadable namespaces are counted in a note. Group memberships are not expanded.
+- OpenShift covers the cluster your `oc` login points at, and namespaces where you can read RoleBindings; unreadable namespaces are counted in a note. Groups and users are cluster-scoped and usually can't be listed without cluster-level read access; the script checks first and notes the skip. Group memberships are not expanded.
+- Issue and pull request searches are not run for a login that is not found (search rejects unknown users), and are not run for aliases (assignments follow the account).
 
 ## Tests
 

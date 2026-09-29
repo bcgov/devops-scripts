@@ -12,8 +12,12 @@
 #   --repo OWNER/NAME Repository for the per-repo checks (repeatable).
 #   --repo-file FILE  File with one OWNER/NAME per line (# comments allowed).
 #                     Default repo set: repos in the orgs where you have admin.
+#   --alias OLDNAME   Former login of a renamed account (repeatable; only with
+#                     a single username). Text-based checks also match it.
 #   --idir NAME       Also match this IDIR name in OpenShift RoleBindings
 #                     (only with a single username).
+#   --email ADDR      Also match this address (e.g. an IDIR email) in OpenShift
+#                     subjects (repeatable; only with a single username).
 #   --json            Print JSON instead of text.
 #   -h, --help        Show this help.
 #
@@ -33,6 +37,8 @@ ORGS=()
 REPOS=()
 REPO_FILE=""
 IDIR=""
+ALIASES=()
+EMAILS=()
 JSON=false
 USERS=()
 
@@ -42,6 +48,8 @@ while [[ $# -gt 0 ]]; do
     --repo) [[ $# -ge 2 ]] || die "--repo needs a value"; REPOS+=("$2"); shift 2 ;;
     --repo-file) [[ $# -ge 2 ]] || die "--repo-file needs a value"; REPO_FILE="$2"; shift 2 ;;
     --idir) [[ $# -ge 2 ]] || die "--idir needs a value"; IDIR="$2"; shift 2 ;;
+    --alias) [[ $# -ge 2 ]] || die "--alias needs a value"; ALIASES+=("$2"); shift 2 ;;
+    --email) [[ $# -ge 2 ]] || die "--email needs a value"; EMAILS+=("$2"); shift 2 ;;
     --json) JSON=true; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; USERS+=("$@"); break ;;
@@ -51,8 +59,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ ${#USERS[@]} -gt 0 ]] || { usage >&2; die "at least one GitHub username is required"; }
-for u in "${USERS[@]}"; do
+for u in "${USERS[@]}" "${ALIASES[@]}"; do
   [[ "$u" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]] || die "not a valid GitHub username: $u"
+done
+[[ ${#ALIASES[@]} -eq 0 || ${#USERS[@]} -eq 1 ]] || die "--alias can only be used with a single username"
+[[ ${#EMAILS[@]} -eq 0 || ${#USERS[@]} -eq 1 ]] || die "--email can only be used with a single username"
+for e in "${EMAILS[@]}"; do
+  [[ "$e" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "not an email address: $e"
 done
 [[ -z "$IDIR" || ${#USERS[@]} -eq 1 ]] || die "--idir can only be used with a single username"
 [[ -z "$IDIR" || "$IDIR" =~ ^[A-Za-z0-9._-]+$ ]] || die "not a valid IDIR name: $IDIR"
@@ -90,8 +103,11 @@ ERRF="${TMPD}/err"
 USERS_FILE="${TMPD}/users"
 printf '%s\n' "${USERS[@]}" | tr '[:upper:]' '[:lower:]' > "$USERS_FILE"
 
-# finding USER CHECK TARGET DETAIL
-finding() { jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" '{user:$u, check:$c, target:$t, detail:$d}' >> "$FINDINGS"; }
+# finding USER CHECK TARGET DETAIL [MATCHED_NAME]
+finding() {
+  jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" --arg m "${5:-}" \
+    '{user:$u, check:$c, target:$t, detail:$d} + (if $m != "" then {matched:$m} else {} end)' >> "$FINDINGS"
+}
 # note USER NOTE (USER may be empty)
 note() { jq -nc --arg u "$1" --arg n "$2" '{user:$u, note:$n}' >> "$NOTES"; }
 
@@ -132,11 +148,26 @@ search_call() {
   return 1
 }
 
-# Users must exist
+# Numeric user IDs. A login that is not found (for example a renamed account)
+# still gets the text-based checks; checks that need a live account are skipped.
+declare -A USER_ID=()
+declare -A GONE=()
 for u in "${USERS[@]}"; do
-  if ! call "users/${u}"; then
-    [[ "$API_STATUS" == 404 ]] && die "no such GitHub user: $u"
+  if call "users/${u}" --jq '.id'; then
+    USER_ID["$u"]="$API_OUT"
+  elif [[ "$API_STATUS" == 404 ]]; then
+    GONE["$u"]=1
+    progress "${u}: user not found; they may have been renamed. Re-run with the new login and --alias ${u}"
+    note "$u" "user not found; they may have been renamed. Re-run with the new login and --alias ${u}. Only text-based checks were run."
+  else
     api_error "users/${u}"
+  fi
+done
+for a in "${ALIASES[@]}"; do
+  if call "users/${a}" --jq '.id'; then
+    note "" "alias ${a} is a live account (id ${API_OUT}); matches on @${a} may belong to that account"
+  elif [[ "$API_STATUS" != 404 ]]; then
+    api_error "users/${a}"
   fi
 done
 
@@ -200,10 +231,15 @@ for o in "${ORGS[@]}"; do orgs_q+=" org:${o}"; done
 # ---- Per-user checks
 for u in "${USERS[@]}"; do
   lu="$(echo "$u" | tr '[:upper:]' '[:lower:]')"
+  # Names for the text-based checks: the login plus any aliases
+  names_l="$(printf '%s\n' "$u" "${ALIASES[@]}" | tr '[:upper:]' '[:lower:]' | awk 'NF && !seen[$0]++' | xargs)"
   progress "checking ${u}"
   declare -A TEAMS=()
+  live=true
+  [[ -z "${GONE[$u]:-}" ]] || live=false
 
   for o in "${ORGS[@]}"; do
+    [[ "$live" == "true" ]] || break
     # Organization membership
     if call "orgs/${o}/members/${u}"; then
       finding "$u" org-membership "$o" "member"
@@ -222,7 +258,7 @@ for u in "${USERS[@]}"; do
   for r in "${REPOS[@]}"; do
     d="${TMPD}/repos/${r//\//__}"
     owner="$(echo "${r%%/*}" | tr '[:upper:]' '[:lower:]')"
-    if [[ -f "$d/all" ]]; then
+    if [[ "$live" == "true" && -f "$d/all" ]]; then
       role="$(awk -F'\t' -v u="$lu" 'tolower($1) == u { print $2; exit }' "$d/all")"
       if [[ -n "$role" ]]; then
         if grep -qixF "$u" "$d/direct"; then
@@ -232,28 +268,36 @@ for u in "${USERS[@]}"; do
         fi
       fi
     fi
-    while IFS=$'\t' read -r path lineno text; do
-      finding "$u" codeowners "$r" "${path}:${lineno}: ${text}"
-    done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
+    while IFS=$'\t' read -r path lineno text name; do
+      finding "$u" codeowners "$r" "${path}:${lineno}: ${text}" "$name"
+    done < <(awk -F'\t' -v names="$names_l" 'BEGIN { split(names, nm, " "); for (i in nm) want["@" nm[i]] = nm[i] }
+      { l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] in want) { print $0 "\t" want[w[k]]; next } }' "$d/codeowners")
     while IFS=$'\t' read -r env type who; do
       lw="$(echo "$who" | tr '[:upper:]' '[:lower:]')"
-      if [[ "$type" == "User" && "$lw" == "$lu" ]]; then
-        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer"
+      if [[ "$type" == "User" && " ${names_l} " == *" ${lw} "* ]]; then
+        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "$lw"
       elif [[ "$type" == "Team" && " ${TEAMS[$owner]:-} " == *" ${lw} "* ]]; then
         finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer through team ${lw}"
       fi
     done < "$d/environments"
   done
 
-  # CODEOWNERS code search across the orgs
-  search_call code_search --paginate -X GET search/code -f q="${u} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
-    -H 'Accept: application/vnd.github.text-match+json' || api_error "search/code"
-  while IFS=$'\t' read -r repo path; do
-    finding "$u" codeowners-search "$repo" "$path"
-  done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
-    '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
+  # CODEOWNERS code search across the orgs, once per name
+  for name in $names_l; do
+    search_call code_search --paginate -X GET search/code -f q="${name} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
+      -H 'Accept: application/vnd.github.text-match+json' || api_error "search/code"
+    while IFS=$'\t' read -r repo path; do
+      finding "$u" codeowners-search "$repo" "$path" "$name"
+    done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${name}([^A-Za-z0-9-]|$)" \
+      '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
+  done
 
-  # Open issues and PRs assigned; PRs waiting on their review
+  # Open issues and PRs assigned; PRs waiting on their review. Assignments and
+  # review requests follow the account, so only a live login is searched.
+  if [[ "$live" != "true" ]]; then
+    unset TEAMS
+    continue
+  fi
   search_call search --paginate -X GET search/issues -f q="is:open assignee:${u}${orgs_q}" -f per_page=100 \
     --jq '.items[] | [.html_url, (if .pull_request then "pull request" else "issue" end), .title] | @tsv' || api_error "search/issues"
   while IFS=$'\t' read -r url kind title; do
@@ -267,12 +311,24 @@ for u in "${USERS[@]}"; do
   unset TEAMS
 done
 
-# ---- OpenShift RoleBindings (only with an active oc login)
+# ---- OpenShift (only with an active oc login)
+# Subject forms, compared case-insensitively: each login and alias bare and as
+# <name>@github, the --idir name bare and as <name>@idir, and every --email.
 if command -v oc >/dev/null 2>&1 && oc whoami >/dev/null 2>&1; then
   names=()
-  for u in "${USERS[@]}"; do names+=("$u" "${u}@github"); done
-  [[ -n "$IDIR" ]] && names+=("$IDIR" "${IDIR}@idir")
-  names_json="$(printf '%s\n' "${names[@]}" | jq -R 'ascii_downcase' | jq -sc .)"
+  for u in "${USERS[@]}" "${ALIASES[@]}"; do names+=("$u" "${u}@github"); done
+  if [[ -n "$IDIR" ]]; then names+=("$IDIR" "${IDIR}@idir"); fi
+  names+=("${EMAILS[@]}")
+  names_json="$(printf '%s\n' "${names[@]}" | jq -R 'select(length > 0) | ascii_downcase' | jq -sc 'unique')"
+  # owner_of SUBJECT: which audited user a matched subject belongs to
+  owner_of() {
+    local s="$1" u lu
+    for u in "${USERS[@]}"; do
+      lu="$(echo "$u" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$s" == "$lu" || "$s" == "${lu}@github" ]]; then echo "$u"; return; fi
+    done
+    echo "${USERS[0]}"
+  }
   unreadable=0
   mapfile -t NAMESPACES < <(oc projects -q)
   progress "OpenShift: checking RoleBindings in ${#NAMESPACES[@]} namespaces"
@@ -281,45 +337,70 @@ if command -v oc >/dev/null 2>&1 && oc whoami >/dev/null 2>&1; then
       unreadable=$((unreadable + 1))
       continue
     fi
-    while IFS=$'\t' read -r subject binding role; do
-      owner_user=""
-      for u in "${USERS[@]}"; do
-        lu="$(echo "$u" | tr '[:upper:]' '[:lower:]')"
-        if [[ "$subject" == "$lu" || "$subject" == "${lu}@github" ]]; then owner_user="$u"; fi
-      done
-      if [[ -z "$owner_user" ]]; then owner_user="${USERS[0]}"; fi
-      finding "$owner_user" openshift-rolebinding "$ns" "${binding} -> ${role} (subject ${subject})"
+    while IFS=$'\t' read -r subject form binding role; do
+      finding "$(owner_of "$form")" openshift-rolebinding "$ns" "${binding} -> ${role} (subject ${subject})" "$form"
     done < <(printf '%s' "$rb" | jq -r --argjson n "$names_json" \
-      '.items[] | .metadata.name as $b | .roleRef.name as $r | .subjects[]? | select(.kind == "User") | (.name | ascii_downcase) as $s | select($n | index($s)) | [$s, $b, $r] | @tsv')
+      '.items[] | .metadata.name as $b | .roleRef.name as $r | .subjects[]? | select(.kind == "User") | .name as $s | ($s | ascii_downcase) as $l | select($n | index($l)) | [$s, $l, $b, $r] | @tsv')
   done
   if (( unreadable > 0 )); then note "" "OpenShift: RoleBindings not readable in ${unreadable} namespace(s)"; fi
+
+  # Group membership lists (cluster-scoped; groups are not expanded)
+  if oc auth can-i list groups >/dev/null 2>&1; then
+    groups_json="$(oc get groups -o json)"
+    while IFS=$'\t' read -r group member form; do
+      finding "$(owner_of "$form")" openshift-group "$group" "listed in users (${member})" "$form"
+    done < <(printf '%s' "$groups_json" | jq -r --argjson n "$names_json" \
+      '.items[] | .metadata.name as $g | .users[]? | . as $m | (ascii_downcase) as $l | select($n | index($l)) | [$g, $m, $l] | @tsv')
+  else
+    note "" "OpenShift: can't list groups in this context; skipped"
+  fi
+
+  # User objects whose name or identity matches (cluster-scoped)
+  if oc auth can-i list users >/dev/null 2>&1; then
+    users_obj_json="$(oc get users -o json)"
+    while IFS=$'\t' read -r uname form; do
+      finding "$(owner_of "$form")" openshift-user "$uname" "User object" "$form"
+    done < <(printf '%s' "$users_obj_json" | jq -r --argjson n "$names_json" \
+      '.items[] | .metadata.name as $u | ([$u] + [.identities[]? | sub("^[^:]*:"; "")]) | map(ascii_downcase) | map(select(. as $x | $n | index($x))) | first // empty | [$u, .] | @tsv')
+  else
+    note "" "OpenShift: can't list users in this context; skipped"
+  fi
 else
   note "" "OpenShift check skipped: oc is not installed or not logged in"
 fi
 
 # ---- Report
+ids_json="$(for u in "${USERS[@]}"; do jq -nc --arg u "$u" --arg id "${USER_ID[$u]:-}" '{($u): (if $id == "" then null else ($id | tonumber) end)}'; done | jq -sc 'add')"
+aliases_json="$(printf '%s\n' "${ALIASES[@]}" | jq -R 'select(length > 0)' | jq -sc .)"
 count="$(wc -l < "$FINDINGS" | tr -d ' ')"
 users_json="$(printf '%s\n' "${USERS[@]}" | jq -R . | jq -sc .)"
 if [[ "$JSON" == "true" ]]; then
   jq -n --argjson users "$users_json" --slurpfile f "$FINDINGS" --slurpfile n "$NOTES" --argjson o "$(printf '%s\n' "${ORGS[@]}" | jq -R . | jq -sc .)" --argjson rc "${#REPOS[@]}" \
-    '{orgs: $o, repos_checked: $rc, users: [$users[] as $u | {user: $u, findings: [$f[] | select(.user == $u) | del(.user)]}], notes: [$n[] | .note]}'
+    --argjson ids "$ids_json" --argjson aliases "$aliases_json" \
+    '{orgs: $o, repos_checked: $rc, users: [$users[] as $u | {user: $u, id: $ids[$u], aliases: $aliases, findings: [$f[] | select(.user == $u) | del(.user)]}], notes: [$n[] | (if .user != "" then .user + ": " else "" end) + .note]}'
 else
   declare -A TITLE=(
     [org-membership]="Organization membership" [team]="Teams" [repo-collaborator]="Repository access"
     [codeowners]="CODEOWNERS (checked repositories)" [environment-reviewer]="Environment required reviewers"
     [codeowners-search]="CODEOWNERS (code search)" [assigned]="Open issues and pull requests assigned"
     [review-requested]="Pull requests waiting on their review" [openshift-rolebinding]="OpenShift RoleBindings"
+    [openshift-group]="OpenShift groups" [openshift-user]="OpenShift users"
   )
   echo "Organizations: ${ORGS[*]}; repositories checked: ${#REPOS[@]}"
   for u in "${USERS[@]}"; do
     echo
-    echo "== ${u}"
+    if [[ -n "${USER_ID[$u]:-}" ]]; then
+      echo "== ${u} (id ${USER_ID[$u]})"
+    else
+      echo "== ${u} (user not found)"
+    fi
+    if [[ ${#ALIASES[@]} -gt 0 ]]; then echo "   aliases: ${ALIASES[*]}"; fi
     if ! jq -e --arg u "$u" 'select(.user == $u)' "$FINDINGS" >/dev/null 2>&1; then
       echo "   nothing found"
       continue
     fi
-    for c in org-membership team repo-collaborator codeowners environment-reviewer codeowners-search assigned review-requested openshift-rolebinding; do
-      lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)"' "$FINDINGS")"
+    for c in org-membership team repo-collaborator codeowners environment-reviewer codeowners-search assigned review-requested openshift-rolebinding openshift-group openshift-user; do
+      lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)" + (if .matched then " [matched \(.matched)]" else "" end)' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
       echo "$lines"
