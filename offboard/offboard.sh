@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the GitHub audit, then the OpenShift audit. Run with -h for usage.
+# Run the GitHub audit and the OpenShift audit as one report per person.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,73 +10,174 @@ usage() {
   cat <<'EOF'
 Usage:
   offboard.sh
-  offboard.sh --github LOGIN [--github LOGIN]... [--gov NAME]...
+  offboard.sh PERSON [PERSON...]
 
-Runs the GitHub audit, then the OpenShift audit.
+A person is a GitHub login, or several names joined with = :
+  gpascucci=greg.pascucci
 
-With no arguments in a terminal, asks for GitHub logins and then gov.bc.ca
-names (the part before the @). Otherwise repeat --github and --gov.
-A gov name is optional.
+Each name is searched for as written. OpenShift matches when the User
+subject contains the name. No suffix is added. Names that are valid GitHub
+logins are also sent to the GitHub audit. Matching ignores case.
 
-If oc is not logged in, the GitHub report is still printed and OpenShift is
-skipped. Exit 1 if either report found access, 3 if either call failed.
+With no arguments in a terminal, asks for the people. If oc is not logged
+in, the GitHub report is still printed and OpenShift is skipped.
+Exit 1 if either report found access, 3 if either call failed.
 EOF
 }
 die() { echo "offboard: $*" >&2; exit 2; }
+lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+is_login() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]]; }
 
-split_words() {
-  local line="$1" w
-  local -a words=()
-  line="${line//,/ }"
-  read -r -a words <<< "$line"
-  for w in "${words[@]+"${words[@]}"}"; do
-    [[ -n "$w" ]] && printf '%s\n' "$w"
-  done
-}
-
-USERS=()
-GOV=()
+PERSONS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --github) [[ $# -ge 2 ]] || die "--github needs a value"; USERS+=("$2"); shift 2 ;;
-    --gov) [[ $# -ge 2 ]] || die "--gov needs a value"; GOV+=("$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) usage >&2; die "unknown argument: $1" ;;
+    --) shift; PERSONS+=("$@"); break ;;
+    -*) usage >&2; die "unknown option: $1" ;;
+    *) PERSONS+=("$1"); shift ;;
   esac
 done
 
-if [[ ${#USERS[@]} -eq 0 && ${#GOV[@]} -eq 0 ]]; then
-  [[ -t 0 ]] || { usage >&2; die "pass --github, or run from a terminal to be asked"; }
-  read -r -p "GitHub logins: " gh_line || die "no GitHub logins entered"
-  read -r -p "gov.bc.ca names: " gov_line || true
-  mapfile -t USERS < <(split_words "$gh_line")
-  mapfile -t GOV < <(split_words "${gov_line:-}")
+if [[ ${#PERSONS[@]} -eq 0 ]]; then
+  [[ -t 0 ]] || { usage >&2; die "pass at least one person, or run from a terminal to be asked"; }
+  read -r -p "People: " line || die "no people entered"
+  line="${line//,/ }"
+  read -r -a PERSONS <<< "$line"
 fi
-[[ ${#USERS[@]} -gt 0 ]] || die "at least one GitHub login is required"
+[[ ${#PERSONS[@]} -gt 0 ]] || die "at least one person is required"
 
-echo "=== GitHub ==="
-set +e
-"$GH_SCRIPT" -- "${USERS[@]}"
-gh_rc=$?
-set -e
+declare -a P_SPEC=()
+declare -a P_NAMES=()
+LOGINS=()
+NEEDLES=()
+declare -A SEEN_LOGIN=() SEEN_NEEDLE=()
+for spec in "${PERSONS[@]}"; do
+  [[ "$spec" == *'=='* || "$spec" == '='* || "$spec" == *'=' ]] && die "empty name in: $spec"
+  IFS='=' read -r -a parts <<< "$spec"
+  [[ ${#parts[@]} -gt 0 ]] || die "empty name in: $spec"
+  names=""
+  for part in "${parts[@]}"; do
+    [[ "$part" =~ ^[A-Za-z0-9][A-Za-z0-9._@+-]*$ ]] || die "not a valid name: $part"
+    names+="${names:+$'\t'}${part}"
+    if [[ -z "${SEEN_NEEDLE[$part]:-}" ]]; then
+      SEEN_NEEDLE[$part]=1
+      NEEDLES+=("$part")
+    fi
+    key="$(lower "$part")"
+    if is_login "$part" && [[ -z "${SEEN_LOGIN[$key]:-}" ]]; then
+      SEEN_LOGIN[$key]=1
+      LOGINS+=("$part")
+    fi
+  done
+  P_SPEC+=("$spec")
+  P_NAMES+=("$names")
+done
 
-echo
-echo "=== OpenShift ==="
+TMPD="$(mktemp -d)"
+trap 'rm -rf "${TMPD}"' EXIT
+GH_OUT="${TMPD}/github.json"
+OC_OUT="${TMPD}/openshift.json"
+echo '{"users":[],"skipped":[],"notes":[]}' > "$GH_OUT"
+echo '{"sections":[],"notes":[]}' > "$OC_OUT"
+
+gh_rc=0
+if [[ ${#LOGINS[@]} -gt 0 ]]; then
+  set +e
+  "$GH_SCRIPT" --json -- "${LOGINS[@]}" > "$GH_OUT"
+  gh_rc=$?
+  set -e
+  jq -e . "$GH_OUT" >/dev/null 2>&1 || echo '{"users":[],"skipped":[],"notes":[]}' > "$GH_OUT"
+fi
+
 oc_rc=0
-oc_cmd=("$OC_SCRIPT")
-for u in "${USERS[@]}"; do oc_cmd+=(--github "$u"); done
-for g in "${GOV[@]+"${GOV[@]}"}"; do oc_cmd+=(--gov "$g"); done
+ran_oc=false
 if ! command -v oc >/dev/null 2>&1 || ! oc whoami >/dev/null 2>&1; then
   echo "OpenShift skipped: oc is not logged in"
   echo "Run this where oc is logged in:"
-  printf ' '
-  printf ' %q' "${oc_cmd[@]}"
+  printf ' %q' "$OC_SCRIPT"
+  for n in "${NEEDLES[@]}"; do printf ' --name %q' "$n"; done
   printf '\n'
 else
+  ran_oc=true
   set +e
-  "${oc_cmd[@]}"
+  oc_cmd=("$OC_SCRIPT" --json)
+  for n in "${NEEDLES[@]}"; do oc_cmd+=(--name "$n"); done
+  "${oc_cmd[@]}" > "$OC_OUT"
   oc_rc=$?
   set -e
+  jq -e . "$OC_OUT" >/dev/null 2>&1 || echo '{"sections":[],"notes":[]}' > "$OC_OUT"
+fi
+
+gh_titles='
+  def title:
+    if . == "org-membership" then "Organization membership"
+    elif . == "team" then "Teams"
+    elif . == "repo-collaborator" then "Repository access"
+    elif . == "codeowners" then "CODEOWNERS (checked repositories)"
+    elif . == "environment-reviewer" then "Environment required reviewers"
+    elif . == "codeowners-search" then "CODEOWNERS (code search)"
+    elif . == "assigned" then "Open issues and pull requests assigned"
+    elif . == "review-requested" then "Pull requests waiting on their review"
+    else . end;
+'
+
+i=0
+while [[ $i -lt ${#P_SPEC[@]} ]]; do
+  echo
+  echo "== ${P_SPEC[$i]}"
+  IFS=$'\t' read -r -a parts <<< "${P_NAMES[$i]}"
+  shown=" "
+  for part in "${parts[@]}"; do
+    lpart="$(lower "$part")"
+    if is_login "$part" && [[ "$shown" != *" ${lpart} "* ]]; then
+      shown+="${lpart} "
+      echo "  GitHub: ${part}"
+      if [[ "$gh_rc" -eq 3 ]]; then
+        echo "   GitHub audit failed"
+      elif jq -e --arg u "$part" 'any(.skipped[]?; ascii_downcase == ($u | ascii_downcase))' "$GH_OUT" >/dev/null; then
+        echo "   GitHub account not found"
+      else
+        block="$(jq -r --arg u "$part" "$gh_titles"'
+          .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings
+          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)", (.[] | "   - \(.target): \(.detail)") end
+        ' "$GH_OUT")"
+        if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
+      fi
+    fi
+    if [[ "$ran_oc" == true ]]; then
+      echo "  OpenShift: ${part}"
+      if [[ "$oc_rc" -eq 3 ]]; then
+        echo "   OpenShift audit failed"
+      else
+        block="$(jq -r --arg u "$part" '
+          .sections[] | select(.name == $u) | .findings
+          | if length == 0 then empty else .[] | "   - \(.target): \(.detail)" end
+        ' "$OC_OUT")"
+        if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
+      fi
+    fi
+  done
+  i=$((i + 1))
+done
+
+if [[ "$gh_rc" -ne 3 ]]; then
+  skipped="$(jq -r '.skipped[]?' "$GH_OUT")"
+  if [[ -n "$skipped" ]]; then
+    echo
+    echo "Skipped, no GitHub account:"
+    printf '%s\n' "$skipped" | sed 's/^/  - /'
+  fi
+fi
+
+if [[ "$ran_oc" == true && "$oc_rc" -ne 3 ]] || [[ "$gh_rc" -ne 3 ]]; then
+  notes="$(jq -rn --slurpfile g "$GH_OUT" --slurpfile o "$OC_OUT" '
+    [$g[0].notes[]?, $o[0].notes[]?] | .[] | select(length > 0)
+  ')"
+  if [[ -n "$notes" ]]; then
+    echo
+    echo "Notes:"
+    printf '%s\n' "$notes" | sed 's/^/  - /'
+  fi
 fi
 
 if [[ "$gh_rc" -eq 3 || "$oc_rc" -eq 3 ]]; then exit 3; fi

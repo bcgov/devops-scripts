@@ -1,21 +1,23 @@
 # Offboarding
 
-`offboard.sh` runs both reports. The two scripts underneath share no calls.
+`offboard.sh` runs both reports, one block per person. The two scripts underneath share no calls.
 
 ```bash
 ./offboard/offboard.sh
-# asks: GitHub logins, then gov.bc.ca names (the part before the @)
+# asks for people
 
 ./offboard/offboard.sh \
-  --github ianliuwk1019 --github franTarkenton --github DBAJohnL \
-  --github Mitchiavelli --github gpascucci --github MCatherine1994 \
-  --github thermcampos --github rmcampos \
-  --gov first.last
+  gpascucci=greg.pascucci \
+  ianliuwk1019 \
+  franTarkenton \
+  DBAJohnL \
+  Mitchiavelli \
+  MCatherine1994 \
+  thermcampos \
+  rmcampos
 ```
 
-Repeat `--github` and `--gov`. A gov name is optional. If `oc` is not logged in, the GitHub report is still printed and OpenShift is skipped, with the command to run where that login exists.
-
-## `offboard-github.sh`
+Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped.
 
 ## `offboard-github.sh`
 
@@ -71,16 +73,15 @@ RoleBindings on the cluster your `oc` login points at. Run this on the machine w
 
 ```bash
 oc login ...
-./offboard/offboard-openshift.sh --github thermcampos --github rmcampos --gov first.last
+./offboard/offboard-openshift.sh --name thermcampos --name rmcampos --name greg.pascucci
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--github LOGIN` | GitHub login (repeatable). Matches that name and `name@github`. |
-| `--gov NAME` | gov.bc.ca name, the part before the `@` (repeatable). Matches `name@gov.bc.ca` only. |
+| `--name STRING` | Name to search for (repeatable). A User subject matches when it contains the name. |
 | `--json` | JSON output instead of text. |
 
-A GitHub login is not compared to `@gov.bc.ca`, and a gov name is not compared to `@github`. Matching ignores case. Each name is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+Matching ignores case. No suffix is added. Each name is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
 
 Requires `oc` logged in, and `jq`.
 

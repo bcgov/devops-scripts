@@ -32,19 +32,32 @@ seed_github() {
 @test "no arguments off a terminal is a usage error" {
   run "$SCRIPT"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"--github"* ]]
+  [[ "$output" == *"at least one person"* ]]
 }
 
-@test "both reports run and a missing oc login still prints GitHub" {
+@test "one person groups GitHub and OpenShift" {
   seed_github
-  OC_WHOAMI_RC=1 run "$SCRIPT" --github example-user --gov first.last
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"},{"kind":"User","name":"first.last@gov.bc.ca"}]}]}' > "$FIXTURES/rb-ns-a"
+  run "$SCRIPT" 'example-user=first.last'
   [ "$status" -eq 1 ]
-  [[ "$output" == *"=== GitHub ==="* ]]
-  [[ "$output" == *"=== OpenShift ==="* ]]
-  [[ "$output" == *"OpenShift skipped: oc is not logged in"* ]]
-  [[ "$output" == *"--github example-user"* ]]
-  [[ "$output" == *"--gov first.last"* ]]
+  [[ "$output" == *"== example-user=first.last"* ]]
+  [[ "$output" == *"GitHub: example-user"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"OpenShift: first.last"* ]]
+  [[ "$output" == *"first.last@gov.bc.ca"* ]]
+  [[ "$output" != *"== first.last"* ]]
+}
+
+@test "a missing oc login still prints GitHub" {
+  seed_github
+  OC_WHOAMI_RC=1 run "$SCRIPT" 'example-user=first.last'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"GitHub: example-user"* ]]
+  [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"OpenShift skipped: oc is not logged in"* ]]
+  [[ "$output" == *"--name example-user"* ]]
+  [[ "$output" == *"--name first.last"* ]]
   [ -z "$(grep 'oc get rolebindings' "$STUB_LOG" || true)" ]
 }
 
@@ -52,9 +65,9 @@ seed_github() {
   seed_github
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"}]}]}' > "$FIXTURES/rb-ns-a"
-  GH_FAIL_MATCH=environments run "$SCRIPT" --github example-user
+  GH_FAIL_MATCH=environments run "$SCRIPT" example-user
   [ "$status" -eq 3 ]
-  [[ "$output" == *"=== OpenShift ==="* ]]
+  [[ "$output" == *"GitHub audit failed"* ]]
   [[ "$output" == *"example-user@github"* ]]
   grep -q 'oc get rolebindings' "$STUB_LOG"
 }

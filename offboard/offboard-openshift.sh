@@ -5,20 +5,17 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  offboard-openshift.sh [--github LOGIN]... [--gov NAME]...
+  offboard-openshift.sh --name STRING [--name STRING]...
 
-Read-only report of OpenShift RoleBindings for departed people, using your
-own oc login. GitHub is a separate script.
+Read-only report of OpenShift RoleBindings whose User subject contains one
+of the names, using your own oc login. Matching ignores case. No suffix is
+added. GitHub is a separate script.
 
 Options:
-  --github LOGIN  GitHub login (repeatable). Matches that name and name@github.
-  --gov NAME      gov.bc.ca name, the part before the @ (repeatable).
-                  Matches name@gov.bc.ca only.
-  --json          Print JSON instead of text.
-  -h, --help      Show this help.
+  --name STRING  Name to search for (repeatable).
+  --json         Print JSON instead of text.
+  -h, --help     Show this help.
 
-Matching ignores case. A GitHub login is not compared to @gov.bc.ca, and a
-gov name is not compared to @github.
 Exit codes: 0 nothing found, 1 access found, 2 usage or dependency error,
             3 an oc call failed.
 EOF
@@ -28,24 +25,15 @@ fail() { echo "offboard-openshift: $*" >&2; exit 3; }
 progress() { echo "offboard-openshift: $*" >&2; }
 lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 
-GH=()
-GOV=()
-declare -A GH_LABEL=() GOV_LABEL=()
+NAMES=()
 JSON=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --github)
-      [[ $# -ge 2 ]] || die "--github needs a value"
-      [[ "$2" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]] || die "not a valid GitHub name: $2"
-      GH+=("$2")
-      GH_LABEL["$(lower "$2")"]="$2"
-      shift 2 ;;
-    --gov)
-      [[ $# -ge 2 ]] || die "--gov needs a value"
-      [[ "$2" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]{0,63})$ ]] || die "not a valid gov.bc.ca name: $2"
-      GOV+=("$2")
-      GOV_LABEL["$(lower "$2")"]="$2"
+    --name)
+      [[ $# -ge 2 ]] || die "--name needs a value"
+      [[ "$2" =~ ^[A-Za-z0-9][A-Za-z0-9._@+-]*$ ]] || die "not a valid name: $2"
+      NAMES+=("$2")
       shift 2 ;;
     --json) JSON=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -53,7 +41,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ ${#GH[@]} -gt 0 || ${#GOV[@]} -gt 0 ]] || { usage >&2; die "pass --github or --gov"; }
+[[ ${#NAMES[@]} -gt 0 ]] || { usage >&2; die "pass --name"; }
 
 command -v oc >/dev/null 2>&1 || die "oc is required"
 command -v jq >/dev/null 2>&1 || die "jq is required"
@@ -86,36 +74,24 @@ for ns in "${NAMESPACES[@]}"; do
   while IFS=$'\t' read -r subject binding role; do
     [[ -n "$subject" ]] || continue
     subject_l="$(lower "$subject")"
-    if [[ "$subject_l" == *"@"* ]]; then
-      local_part="${subject_l%%@*}"
-      domain="${subject_l#*@}"
-    else
-      local_part="$subject_l"
-      domain=""
-    fi
-    owner=""
-    case "$domain" in
-      "" | github) owner="${GH_LABEL[$local_part]:-}" ;;
-      gov.bc.ca) owner="${GOV_LABEL[$local_part]:-}" ;;
-    esac
-    [[ -n "$owner" ]] || continue
-    finding "$owner" rolebinding "$ns" "${binding} -> ${role} (subject ${subject_l})"
+    for name in "${NAMES[@]}"; do
+      needle="$(lower "$name")"
+      [[ "$subject_l" == *"$needle"* ]] || continue
+      finding "$name" rolebinding "$ns" "${binding} -> ${role} (subject ${subject_l})"
+    done
   done < <(printf '%s' "$rb" | jq -r \
     '.items[] | .metadata.name as $b | .roleRef.name as $r | .subjects[]? | select(.kind == "User") | [.name, $b, $r] | @tsv')
 done
 if (( unreadable > 0 )); then note "RoleBindings not readable in ${unreadable} namespace(s)"; fi
 
-SECTIONS=()
-[[ ${#GH[@]} -eq 0 ]] || SECTIONS+=("${GH[@]}")
-[[ ${#GOV[@]} -eq 0 ]] || SECTIONS+=("${GOV[@]}")
 count="$(wc -l < "$FINDINGS" | tr -d ' ')"
-sections_json="$(printf '%s\n' "${SECTIONS[@]}" | jq -R . | jq -sc .)"
+names_json="$(printf '%s\n' "${NAMES[@]}" | jq -R . | jq -sc .)"
 if [[ "$JSON" == "true" ]]; then
-  jq -n --argjson sections "$sections_json" --slurpfile f "$FINDINGS" --slurpfile n "$NOTES" --argjson ns "${#NAMESPACES[@]}" \
-    '{namespaces_checked: $ns, sections: [$sections[] as $u | {name: $u, findings: [$f[] | select(.user == $u) | del(.user)]}], notes: [$n[] | .note]}'
+  jq -n --argjson names "$names_json" --slurpfile f "$FINDINGS" --slurpfile n "$NOTES" --argjson ns "${#NAMESPACES[@]}" \
+    '{namespaces_checked: $ns, sections: [$names[] as $u | {name: $u, findings: [$f[] | select(.user == $u) | del(.user)]}], notes: [$n[] | .note]}'
 else
   echo "Namespaces checked: ${#NAMESPACES[@]}"
-  for u in "${SECTIONS[@]}"; do
+  for u in "${NAMES[@]}"; do
     echo
     echo "== ${u}"
     if ! jq -e --arg u "$u" 'select(.user == $u)' "$FINDINGS" >/dev/null 2>&1; then
