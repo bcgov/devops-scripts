@@ -40,6 +40,19 @@ JSON
   [[ "$output" == *"at least one GitHub username"* ]]
 }
 
+@test "--help works when the script is read from stdin" {
+  run bash -c 'bash -s -- --help < "$1"' bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"github-username"* ]]
+}
+
+@test "no arguments via stdin is a usage error" {
+  run bash -c 'bash -s -- < "$1"' bash "$SCRIPT"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"at least one GitHub username"* ]]
+  [[ "$output" != *"No such file"* ]]
+}
+
 @test "unknown option is a usage error" {
   run "$SCRIPT" --bogus example-user
   [ "$status" -eq 2 ]

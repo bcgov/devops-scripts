@@ -20,6 +20,10 @@ Read-only report of every place a departed person still has access or ownership.
 # Also match an IDIR name in OpenShift RoleBindings
 oc login ...
 ./offboard/offboard-audit.sh --idir EXAMPLEIDIR example-user
+
+# Without a clone. Uses the gh and oc logins on this machine. Arguments follow bash -s --
+curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/offboard/offboard-audit.sh \
+  | bash -s -- example-user
 ```
 
 | Option | Meaning |

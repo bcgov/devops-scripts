@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-#
-# Usage:
-#   ./offboard-audit.sh [options] <github-username> [more usernames]
-#
-# Read-only report of the places a departed person still has access or
-# ownership, using your own gh login (and your own oc login, if active).
-#
-# Options:
-#   --org ORG         Organization to check (repeatable). Default: $OFFBOARD_ORGS,
-#                     else "bcgov bcgov-c bcgov-nr".
-#   --repo OWNER/NAME Repository for the per-repo checks (repeatable).
-#   --repo-file FILE  File with one OWNER/NAME per line (# comments allowed).
-#                     Default repo set: repos in the orgs where you have admin.
-#   --idir NAME       Also match this IDIR name in OpenShift RoleBindings
-#                     (only with a single username).
-#   --json            Print JSON instead of text.
-#   -h, --help        Show this help.
-#
-# Exit codes: 0 nothing found, 1 access found, 2 usage or dependency error,
-#             3 an API call failed.
-
+# Read-only offboarding audit. Run with -h for usage.
 set -euo pipefail
 
 usage() {
-  grep -v '^#!' "${0}" | awk '/^#/ { sub(/^# ?/, ""); print; next } NF==0 { exit }'
+  cat <<'EOF'
+Usage:
+  offboard-audit.sh [options] <github-username> [more usernames]
+
+Read-only report of the places a departed person still has access or
+ownership, using your own gh login (and your own oc login, if active).
+
+Options:
+  --org ORG         Organization to check (repeatable). Default: $OFFBOARD_ORGS,
+                    else "bcgov bcgov-c bcgov-nr".
+  --repo OWNER/NAME Repository for the per-repo checks (repeatable).
+  --repo-file FILE  File with one OWNER/NAME per line (# comments allowed).
+                    Default repo set: repos in the orgs where you have admin.
+  --idir NAME       Also match this IDIR name in OpenShift RoleBindings
+                    (only with a single username).
+  --json            Print JSON instead of text.
+  -h, --help        Show this help.
+
+Exit codes: 0 nothing found, 1 access found, 2 usage or dependency error,
+            3 an API call failed.
+EOF
 }
 die() { echo "offboard-audit: $*" >&2; exit 2; }
 fail() { echo "offboard-audit: $*" >&2; exit 3; }
