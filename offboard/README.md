@@ -46,7 +46,7 @@ A login GitHub does not have is printed under that name and again under `Skipped
 
 Login, organization, team, CODEOWNERS, and search comparisons are case-insensitive. Search queries are sent in lowercase.
 
-The repository list, collaborator lists, CODEOWNERS files, and environment reviewers are fetched once and matched against every login. Organization members are one list per organization. Teams are one GraphQL call per organization. Code search and assignee search run in batches of six logins, which is as many as GitHub's five-`OR` limit allows. Review requests stay one query per live login, because a batched result does not say who was requested.
+The repository list, collaborator lists, CODEOWNERS files, and environment reviewers are fetched once and matched against every login. Organization members are one list per organization. Teams are one GraphQL call per organization. Code search is one query per live login: a grouped `OR` is rejected by that API. Assignee search runs in batches of six logins, which is as many as GitHub's five-`OR` limit allows. Review requests stay one query per live login, because a batched result does not say who was requested. If a search call fails after those checks, the report still includes them and the run exits `3`.
 
 | Check | Source |
 | --- | --- |

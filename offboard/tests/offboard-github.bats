@@ -146,7 +146,8 @@ JSON
   run grep -c 'userLogins:' "$STUB_LOG"
   [ "$output" = 1 ]
   run grep -c 'search/code' "$STUB_LOG"
-  [ "$output" = 1 ]
+  [ "$output" = 2 ]
+  [ -z "$(grep 'search/code' "$STUB_LOG" | grep '(' || true)" ]
   run grep -c 'assignee:' "$STUB_LOG"
   [ "$output" = 1 ]
   run grep -c 'user-review-requested:' "$STUB_LOG"
@@ -172,4 +173,12 @@ JSON
   GH_FAIL_MATCH='environments' run "$SCRIPT" example-user
   [ "$status" -eq 3 ]
   [[ "$output" == *"HTTP 500"* ]]
+}
+
+@test "a search failure still prints the checks already done" {
+  seed_findings
+  GH_FAIL_MATCH='search/code' run "$SCRIPT" example-user
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"search failed (HTTP 500)"* ]]
 }

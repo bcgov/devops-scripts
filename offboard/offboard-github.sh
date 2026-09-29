@@ -123,7 +123,8 @@ search_call() {
   return 1
 }
 
-# GitHub allows five OR operators, so a search covers at most six logins.
+# Issue search allows five OR operators, so an assignee query covers at most six logins.
+# Code search rejects a parenthesized OR and returns no hits for a bare OR, so it is one query per login.
 search_expr() {
   local out="" w
   for w in "$@"; do out+="${out:+ OR }${w}"; done
@@ -132,6 +133,7 @@ search_expr() {
 
 LIVE=()
 SKIPPED=()
+SEARCH_OK=true
 declare -A SKIPPED_SET=()
 for u in "${USERS[@]}"; do
   if call "users/${u}"; then
@@ -276,30 +278,34 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     done
   done
 
+  search_stop() {
+    echo "offboard-github: search failed (HTTP ${API_STATUS}): $(tail -n 1 "$ERRF")" >&2
+    note "" "search failed (HTTP ${API_STATUS})"
+    SEARCH_OK=false
+  }
+
+  for u in "${LIVE[@]}"; do
+    [[ "$SEARCH_OK" == true ]] || break
+    lu="$(lower "$u")"
+    search_call code_search --paginate -X GET search/code -f q="${lu} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
+      -H 'Accept: application/vnd.github.text-match+json' || { search_stop; break; }
+    while IFS=$'\t' read -r repo path; do
+      [[ -n "$repo" ]] || continue
+      finding "$u" codeowners-search "$repo" "$path"
+    done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
+      '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
+  done
+
   i=0
-  while [[ $i -lt ${#LIVE[@]} ]]; do
+  while [[ "$SEARCH_OK" == true && $i -lt ${#LIVE[@]} ]]; do
     chunk=("${LIVE[@]:i:6}")
     i=$((i + 6))
-    terms=()
-    for u in "${chunk[@]}"; do terms+=("$(lower "$u")"); done
-    expr="$(search_expr "${terms[@]}")"
-    search_call code_search --paginate -X GET search/code -f q="${expr} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
-      -H 'Accept: application/vnd.github.text-match+json' || api_error "search/code"
-    for u in "${chunk[@]}"; do
-      lu="$(lower "$u")"
-      while IFS=$'\t' read -r repo path; do
-        [[ -n "$repo" ]] || continue
-        finding "$u" codeowners-search "$repo" "$path"
-      done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
-        '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
-    done
-
     prefixed=()
     for u in "${chunk[@]}"; do prefixed+=("assignee:$(lower "$u")"); done
     expr="$(search_expr "${prefixed[@]}")"
     search_call search --paginate -X GET search/issues -f q="is:open ${expr}${orgs_q}" -f per_page=100 \
       --jq '.items[]? | .html_url as $u | (if .pull_request then "pull request" else "issue" end) as $k | .title as $t | (.assignees // [])[]? | [$u, $k, $t, .login] | @tsv' \
-      || api_error "search/issues"
+      || { search_stop; break; }
     while IFS=$'\t' read -r url kind title login; do
       [[ -n "$url" && -n "$login" ]] || continue
       llogin="$(lower "$login")"
@@ -311,13 +317,16 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     done <<< "$API_OUT"
   done
 
-  for u in "${LIVE[@]}"; do
-    search_call search --paginate -X GET search/issues -f q="is:open is:pr user-review-requested:$(lower "$u")${orgs_q}" -f per_page=100 \
-      --jq '.items[] | [.html_url, .title] | @tsv' || api_error "search/issues"
-    while IFS=$'\t' read -r url title; do
-      if [[ -n "$url" ]]; then finding "$u" review-requested "$url" "$title"; fi
-    done <<< "$API_OUT"
-  done
+  if [[ "$SEARCH_OK" == true ]]; then
+    for u in "${LIVE[@]}"; do
+      [[ "$SEARCH_OK" == true ]] || break
+      search_call search --paginate -X GET search/issues -f q="is:open is:pr user-review-requested:$(lower "$u")${orgs_q}" -f per_page=100 \
+        --jq '.items[] | [.html_url, .title] | @tsv' || { search_stop; break; }
+      while IFS=$'\t' read -r url title; do
+        if [[ -n "$url" ]]; then finding "$u" review-requested "$url" "$title"; fi
+      done <<< "$API_OUT"
+    done
+  fi
 fi
 
 count="$(wc -l < "$FINDINGS" | tr -d ' ')"
@@ -368,5 +377,6 @@ else
   fi
 fi
 
+if [[ "$SEARCH_OK" != true ]]; then exit 3; fi
 [[ "$count" -eq 0 ]] || exit 1
 exit 0

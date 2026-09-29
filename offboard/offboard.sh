@@ -132,7 +132,9 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
     if is_login "$part" && [[ "$shown" != *" ${lpart} "* ]]; then
       shown+="${lpart} "
       echo "  GitHub: ${part}"
-      if [[ "$gh_rc" -eq 3 ]]; then
+      has_user=false
+      jq -e --arg u "$part" 'any(.users[]?; (.user | ascii_downcase) == ($u | ascii_downcase))' "$GH_OUT" >/dev/null && has_user=true
+      if [[ "$gh_rc" -eq 3 && "$has_user" == false ]]; then
         echo "   GitHub audit failed"
       elif jq -e --arg u "$part" 'any(.skipped[]?; ascii_downcase == ($u | ascii_downcase))' "$GH_OUT" >/dev/null; then
         echo "   GitHub account not found"
@@ -141,7 +143,13 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
           .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings
           | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)", (.[] | "   - \(.target): \(.detail)") end
         ' "$GH_OUT")"
-        if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
+        if [[ -n "$block" ]]; then
+          echo "$block"
+        elif [[ "$gh_rc" -eq 3 ]]; then
+          echo "   GitHub audit did not finish"
+        else
+          echo "   nothing found"
+        fi
       fi
     fi
     if [[ "$ran_oc" == true ]]; then
@@ -160,24 +168,20 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
   i=$((i + 1))
 done
 
-if [[ "$gh_rc" -ne 3 ]]; then
-  skipped="$(jq -r '.skipped[]?' "$GH_OUT")"
-  if [[ -n "$skipped" ]]; then
-    echo
-    echo "Skipped, no GitHub account:"
-    printf '%s\n' "$skipped" | sed 's/^/  - /'
-  fi
+skipped="$(jq -r '.skipped[]?' "$GH_OUT")"
+if [[ -n "$skipped" ]]; then
+  echo
+  echo "Skipped, no GitHub account:"
+  printf '%s\n' "$skipped" | sed 's/^/  - /'
 fi
 
-if [[ "$ran_oc" == true && "$oc_rc" -ne 3 ]] || [[ "$gh_rc" -ne 3 ]]; then
-  notes="$(jq -rn --slurpfile g "$GH_OUT" --slurpfile o "$OC_OUT" '
-    [$g[0].notes[]?, $o[0].notes[]?] | .[] | select(length > 0)
-  ')"
-  if [[ -n "$notes" ]]; then
-    echo
-    echo "Notes:"
-    printf '%s\n' "$notes" | sed 's/^/  - /'
-  fi
+notes="$(jq -rn --slurpfile g "$GH_OUT" --slurpfile o "$OC_OUT" '
+  [$g[0].notes[]?, $o[0].notes[]?] | .[] | select(length > 0)
+')"
+if [[ -n "$notes" ]]; then
+  echo
+  echo "Notes:"
+  printf '%s\n' "$notes" | sed 's/^/  - /'
 fi
 
 if [[ "$gh_rc" -eq 3 || "$oc_rc" -eq 3 ]]; then exit 3; fi

@@ -61,6 +61,16 @@ seed_github() {
   [ -z "$(grep 'oc get rolebindings' "$STUB_LOG" || true)" ]
 }
 
+@test "a late GitHub search failure still prints earlier GitHub findings" {
+  seed_github
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
+  GH_FAIL_MATCH='search/code' run "$SCRIPT" example-user
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"search failed (HTTP 500)"* ]]
+}
+
 @test "a GitHub API failure still runs OpenShift" {
   seed_github
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
