@@ -20,7 +20,7 @@ Scripts a person runs from a workstation with their own login (for example an ac
 
 ### Offboarding ([`offboard/`](offboard))
 
-- [`offboard.sh`](offboard/offboard.sh): runs the GitHub audit, then the OpenShift audit. Asks for the two name lists, or takes `--github-file` and `--gov-file`.
+- [`offboard.sh`](offboard/offboard.sh): runs the GitHub audit, then the OpenShift audit. Asks for the two name lists, or takes repeatable `--github` and `--gov`.
 - [`offboard-github.sh`](offboard/offboard-github.sh): read-only report of GitHub access and ownership for one or more logins.
 - [`offboard-openshift.sh`](offboard/offboard-openshift.sh): read-only report of OpenShift RoleBindings for `name@github` and `name@gov.bc.ca` subjects.
 

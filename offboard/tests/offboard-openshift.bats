@@ -12,18 +12,16 @@ setup() {
   PATH="${BATS_TEST_DIRNAME}/stubs:${PATH}"
   export PATH
   export OC_WHOAMI_RC=0
-  printf 'example-user\n' > "${BATS_TEST_TMPDIR}/github.txt"
-  printf 'first.last\n' > "${BATS_TEST_TMPDIR}/gov.txt"
 }
 
 @test "no lists is a usage error" {
   run "$SCRIPT"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"--github-file or --gov-file"* ]]
+  [[ "$output" == *"--github or --gov"* ]]
 }
 
 @test "oc not logged in is an error" {
-  OC_WHOAMI_RC=1 run "$SCRIPT" --github-file "${BATS_TEST_TMPDIR}/github.txt"
+  OC_WHOAMI_RC=1 run "$SCRIPT" --github example-user
   [ "$status" -eq 2 ]
   [[ "$output" == *"not logged in"* ]]
 }
@@ -42,9 +40,7 @@ JSON
   cat > "$FIXTURES/rb-ns-b" <<'JSON'
 {"items":[{"metadata":{"name":"rb3"},"roleRef":{"name":"view"},"subjects":[{"kind":"Group","name":"example-user"}]}]}
 JSON
-  run --separate-stderr "$SCRIPT" --json \
-    --github-file "${BATS_TEST_TMPDIR}/github.txt" \
-    --gov-file "${BATS_TEST_TMPDIR}/gov.txt"
+  run --separate-stderr "$SCRIPT" --json --github example-user --gov first.last
   [ "$status" -eq 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "example-user") | .findings[]] | length')" = 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "first.last") | .findings[]] | length')" = 1 ]
@@ -57,17 +53,13 @@ JSON
 
 @test "subject matching is case insensitive" {
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
-  printf 'Example-User\n' > "${BATS_TEST_TMPDIR}/github.txt"
-  printf 'First.Last\n' > "${BATS_TEST_TMPDIR}/gov.txt"
   cat > "$FIXTURES/rb-ns-a" <<'JSON'
 {"items":[
   {"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@GITHUB"}]},
   {"metadata":{"name":"rb2"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"first.last@gov.bc.ca"}]}
 ]}
 JSON
-  run --separate-stderr "$SCRIPT" --json \
-    --github-file "${BATS_TEST_TMPDIR}/github.txt" \
-    --gov-file "${BATS_TEST_TMPDIR}/gov.txt"
+  run --separate-stderr "$SCRIPT" --json --github Example-User --gov First.Last
   [ "$status" -eq 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "Example-User") | .findings[]] | length')" = 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "First.Last") | .findings[]] | length')" = 1 ]
@@ -76,7 +68,7 @@ JSON
 @test "only read-only calls are made" {
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
-  run "$SCRIPT" --github-file "${BATS_TEST_TMPDIR}/github.txt"
+  run "$SCRIPT" --github example-user
   [ -z "$(grep -E -- '-X (POST|PUT|PATCH|DELETE)|--method|--input' "$STUB_LOG")" ]
   [ -z "$(grep -E '^oc ' "$STUB_LOG" | grep -vE '^oc (whoami|projects -q|get rolebindings -n [a-z0-9-]+ -o json)$')" ]
   [ -z "$(grep '^gh ' "$STUB_LOG" || true)" ]

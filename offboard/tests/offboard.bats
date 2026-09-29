@@ -14,8 +14,6 @@ setup() {
   export OFFBOARD_ORGS="example-org"
   export OC_WHOAMI_RC=0
   unset GH_AUTH_RC GH_FAIL_MATCH
-  printf 'example-user\n' > "${BATS_TEST_TMPDIR}/github.txt"
-  printf 'first.last\n' > "${BATS_TEST_TMPDIR}/gov.txt"
 }
 
 seed_github() {
@@ -34,17 +32,18 @@ seed_github() {
 @test "no arguments off a terminal is a usage error" {
   run "$SCRIPT"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"--github-file"* ]]
+  [[ "$output" == *"--github"* ]]
 }
 
 @test "both reports run and a missing oc login still prints GitHub" {
   seed_github
-  OC_WHOAMI_RC=1 run "$SCRIPT" --github-file "${BATS_TEST_TMPDIR}/github.txt" --gov-file "${BATS_TEST_TMPDIR}/gov.txt"
+  OC_WHOAMI_RC=1 run "$SCRIPT" --github example-user --gov first.last
   [ "$status" -eq 1 ]
   [[ "$output" == *"=== GitHub ==="* ]]
   [[ "$output" == *"=== OpenShift ==="* ]]
   [[ "$output" == *"OpenShift skipped: oc is not logged in"* ]]
-  [[ "$output" == *"--github-file ${BATS_TEST_TMPDIR}/github.txt"* ]]
+  [[ "$output" == *"--github example-user"* ]]
+  [[ "$output" == *"--gov first.last"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
   [ -z "$(grep 'oc get rolebindings' "$STUB_LOG" || true)" ]
 }
@@ -53,7 +52,7 @@ seed_github() {
   seed_github
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"}]}]}' > "$FIXTURES/rb-ns-a"
-  GH_FAIL_MATCH=environments run "$SCRIPT" --github-file "${BATS_TEST_TMPDIR}/github.txt"
+  GH_FAIL_MATCH=environments run "$SCRIPT" --github example-user
   [ "$status" -eq 3 ]
   [[ "$output" == *"=== OpenShift ==="* ]]
   [[ "$output" == *"example-user@github"* ]]

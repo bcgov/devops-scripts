@@ -6,10 +6,14 @@
 ./offboard/offboard.sh
 # asks: GitHub logins, then gov.bc.ca names (the part before the @)
 
-./offboard/offboard.sh --github-file github.txt --gov-file gov.txt
+./offboard/offboard.sh \
+  --github ianliuwk1019 --github franTarkenton --github DBAJohnL \
+  --github Mitchiavelli --github gpascucci --github MCatherine1994 \
+  --github thermcampos --github rmcampos \
+  --gov first.last
 ```
 
-One name per line in each file. A gov file is optional. If `oc` is not logged in, the GitHub report is still printed and OpenShift is skipped, with the command to run where that login exists.
+Repeat `--github` and `--gov`. A gov name is optional. If `oc` is not logged in, the GitHub report is still printed and OpenShift is skipped, with the command to run where that login exists.
 
 ## `offboard-github.sh`
 
@@ -67,13 +71,13 @@ RoleBindings on the cluster your `oc` login points at. Run this on the machine w
 
 ```bash
 oc login ...
-./offboard/offboard-openshift.sh --github-file github.txt --gov-file gov.txt
+./offboard/offboard-openshift.sh --github thermcampos --github rmcampos --gov first.last
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--github-file FILE` | One GitHub login per line. Matches that name and `name@github`. |
-| `--gov-file FILE` | One gov.bc.ca name per line, the part before the `@`. Matches `name@gov.bc.ca` only. |
+| `--github LOGIN` | GitHub login (repeatable). Matches that name and `name@github`. |
+| `--gov NAME` | gov.bc.ca name, the part before the `@` (repeatable). Matches `name@gov.bc.ca` only. |
 | `--json` | JSON output instead of text. |
 
 A GitHub login is not compared to `@gov.bc.ca`, and a gov name is not compared to `@github`. Matching ignores case. Each name is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
