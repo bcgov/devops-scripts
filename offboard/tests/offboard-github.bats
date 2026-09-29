@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# Tests for offboard-audit.sh with stubbed gh and oc on PATH. No network access.
+# Tests for offboard-github.sh with stubbed gh on PATH. No network access.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../offboard-audit.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../offboard-github.sh"
   export FIXTURES="${BATS_TEST_TMPDIR}/fx"
   export STUB_LOG="${BATS_TEST_TMPDIR}/calls.log"
   mkdir -p "$FIXTURES"
@@ -30,7 +30,7 @@ seed_findings() {
  {"repository":{"full_name":"example-org/repo-four"},"path":"CODEOWNERS","text_matches":[{"fragment":"* @example-user-two"}]}
 ]}
 JSON
-  printf 'https://github.com/example-org/repo-one/issues/1\tissue\tAn issue\nhttps://github.com/example-org/repo-one/pull/2\tpull request\tA change\n' > "$FIXTURES/search-assigned"
+  printf 'https://github.com/example-org/repo-one/issues/1\tissue\tAn issue\texample-user\nhttps://github.com/example-org/repo-one/pull/2\tpull request\tA change\texample-user\n' > "$FIXTURES/search-assigned"
   printf 'https://github.com/example-org/repo-one/pull/3\tNeeds review\n' > "$FIXTURES/search-review"
 }
 
@@ -50,11 +50,6 @@ JSON
   [ "$status" -eq 2 ]
 }
 
-@test "--idir with more than one user is a usage error" {
-  run "$SCRIPT" --idir someone example-user example-user-two
-  [ "$status" -eq 2 ]
-}
-
 @test "missing jq is a dependency error" {
   nojq="${BATS_TEST_TMPDIR}/nojq"
   mkdir -p "$nojq"
@@ -70,19 +65,23 @@ JSON
   [[ "$output" == *"not logged in"* ]]
 }
 
-@test "unknown GitHub user is a usage error" {
+@test "unknown GitHub user is skipped and the other checks do not run" {
   run "$SCRIPT" missing-user
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"no such GitHub user"* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"GitHub account not found"* ]]
+  [[ "$output" == *"Skipped, no GitHub account:"* ]]
+  [[ "$output" == *"missing-user"* ]]
+  run grep -c 'user/repos' "$STUB_LOG"
+  [ "$output" = 0 ]
 }
 
-@test "nothing found exits 0 and notes the OpenShift skip" {
+@test "nothing found exits 0" {
   printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
   printf 'example-admin\tadmin\n' > "$FIXTURES/collab-all-repo-one"
   run "$SCRIPT" example-user
   [ "$status" -eq 0 ]
   [[ "$output" == *"nothing found"* ]]
-  [[ "$output" == *"OpenShift check skipped"* ]]
+  [[ "$output" != *"OpenShift"* ]]
 }
 
 @test "findings in every GitHub check exit 1 (json)" {
@@ -126,30 +125,34 @@ JSON
   [ "$output" = 0 ]
 }
 
-@test "OpenShift RoleBindings are matched when oc is logged in" {
-  printf 'ns-a\nns-b\nns-c\n' > "$FIXTURES/oc-projects"
-  cat > "$FIXTURES/rb-ns-a" <<'JSON'
-{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"}]},
-          {"metadata":{"name":"rb2"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"someone-else"}]}]}
-JSON
-  cat > "$FIXTURES/rb-ns-b" <<'JSON'
-{"items":[{"metadata":{"name":"rb3"},"roleRef":{"name":"view"},"subjects":[{"kind":"User","name":"EXAMPLEIDIR@idir"},{"kind":"Group","name":"example-user"}]}]}
-JSON
-  OC_WHOAMI_RC=0 run --separate-stderr "$SCRIPT" --json --idir exampleidir example-user
-  [ "$status" -eq 1 ]
-  [ "$(echo "$output" | jq '[.users[0].findings[] | select(.check == "openshift-rolebinding")] | length')" = 2 ]
-  echo "$output" | jq -e '.notes[] | select(test("not readable in 1 namespace"))'
-}
-
-@test "only read-only calls are made" {
+@test "only read-only GitHub calls are made" {
   seed_findings
-  printf 'ns-a\n' > "$FIXTURES/oc-projects"
-  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
-  OC_WHOAMI_RC=0 run "$SCRIPT" --json example-user
-  grep -q '^oc get rolebindings' "$STUB_LOG"
+  run "$SCRIPT" --json example-user
   [ -z "$(grep -E -- '-X (POST|PUT|PATCH|DELETE)|--method|--input|-F ' "$STUB_LOG")" ]
   [ -z "$(grep -E '^gh api' "$STUB_LOG" | grep -E -- ' -f ' | grep -vE 'graphql|search/|-X GET')" ]
-  [ -z "$(grep -E '^oc ' "$STUB_LOG" | grep -vE '^oc (whoami|projects -q|get rolebindings -n [a-z0-9-]+ -o json)$')" ]
+  [ -z "$(grep '^oc ' "$STUB_LOG" || true)" ]
+}
+
+@test "live logins share one fetch and a missing login is skipped" {
+  seed_findings
+  run --separate-stderr "$SCRIPT" --json example-user example-user-two missing-user
+  [ "$status" -eq 1 ]
+  [ "$(echo "$output" | jq -c '.skipped')" = '["missing-user"]' ]
+  [ "$(echo "$output" | jq '[.users[] | select(.user == "example-user") | .findings[] | select(.check == "org-membership")] | length')" = 1 ]
+  [ "$(echo "$output" | jq '[.users[] | select(.user == "example-user-two") | .findings[] | select(.check == "team")] | length')" = 0 ]
+  [ "$(echo "$output" | jq '[.users[] | select(.user == "missing-user") | .findings[]] | length')" = 0 ]
+  run grep -Fc 'members?per_page' "$STUB_LOG"
+  [ "$output" = 1 ]
+  run grep -c 'userLogins:' "$STUB_LOG"
+  [ "$output" = 1 ]
+  run grep -c 'search/code' "$STUB_LOG"
+  [ "$output" = 1 ]
+  run grep -c 'assignee:' "$STUB_LOG"
+  [ "$output" = 1 ]
+  run grep -c 'user-review-requested:' "$STUB_LOG"
+  [ "$output" = 2 ]
+  run grep -c 'userLogins:\["missing-user"\]' "$STUB_LOG"
+  [ "$output" = 0 ]
 }
 
 @test "an API failure exits 3" {
