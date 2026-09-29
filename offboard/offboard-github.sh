@@ -201,10 +201,10 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
   done
 
   orgs_q=""
-  for o in "${ORGS[@]}"; do orgs_q+=" org:${o}"; done
+  for o in "${ORGS[@]}"; do orgs_q+=" org:$(lower "$o")"; done
 
   for o in "${ORGS[@]}"; do
-    if call --paginate "orgs/${o}/members?per_page=100" --jq '.[].login'; then
+    if call --paginate "orgs/$(lower "$o")/members?per_page=100" --jq '.[].login'; then
       printf '%s\n' "$API_OUT" | tr '[:upper:]' '[:lower:]' > "$TMPD/members"
     elif [[ "$API_STATUS" == 404 ]]; then
       : > "$TMPD/members"
@@ -221,11 +221,11 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     tq='query($o:String!){organization(login:$o){'
     ti=0
     for u in "${LIVE[@]}"; do
-      tq+="u${ti}:teams(first:100,userLogins:[\"${u}\"]){pageInfo{hasNextPage}nodes{slug}}"
+      tq+="u${ti}:teams(first:100,userLogins:[\"$(lower "$u")\"]){pageInfo{hasNextPage}nodes{slug}}"
       ti=$((ti + 1))
     done
     tq+='}}'
-    call graphql -f query="$tq" -f o="$o" || api_error "graphql teams ${o}"
+    call graphql -f query="$tq" -f o="$(lower "$o")" || api_error "graphql teams ${o}"
     live_json="$(printf '%s\n' "${LIVE[@]}" | jq -R . | jq -sc .)"
     while IFS=$'\t' read -r idx more; do
       [[ "$more" == "true" ]] || continue
@@ -280,7 +280,9 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
   while [[ $i -lt ${#LIVE[@]} ]]; do
     chunk=("${LIVE[@]:i:6}")
     i=$((i + 6))
-    expr="$(search_expr "${chunk[@]}")"
+    terms=()
+    for u in "${chunk[@]}"; do terms+=("$(lower "$u")"); done
+    expr="$(search_expr "${terms[@]}")"
     search_call code_search --paginate -X GET search/code -f q="${expr} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
       -H 'Accept: application/vnd.github.text-match+json' || api_error "search/code"
     for u in "${chunk[@]}"; do
@@ -293,7 +295,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     done
 
     prefixed=()
-    for u in "${chunk[@]}"; do prefixed+=("assignee:${u}"); done
+    for u in "${chunk[@]}"; do prefixed+=("assignee:$(lower "$u")"); done
     expr="$(search_expr "${prefixed[@]}")"
     search_call search --paginate -X GET search/issues -f q="is:open ${expr}${orgs_q}" -f per_page=100 \
       --jq '.items[]? | .html_url as $u | (if .pull_request then "pull request" else "issue" end) as $k | .title as $t | (.assignees // [])[]? | [$u, $k, $t, .login] | @tsv' \
@@ -310,7 +312,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
   done
 
   for u in "${LIVE[@]}"; do
-    search_call search --paginate -X GET search/issues -f q="is:open is:pr user-review-requested:${u}${orgs_q}" -f per_page=100 \
+    search_call search --paginate -X GET search/issues -f q="is:open is:pr user-review-requested:$(lower "$u")${orgs_q}" -f per_page=100 \
       --jq '.items[] | [.html_url, .title] | @tsv' || api_error "search/issues"
     while IFS=$'\t' read -r url title; do
       if [[ -n "$url" ]]; then finding "$u" review-requested "$url" "$title"; fi

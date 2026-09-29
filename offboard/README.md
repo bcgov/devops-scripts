@@ -27,6 +27,8 @@ GitHub access and ownership, using your own `gh` login.
 
 A login GitHub does not have is printed under that name and again under `Skipped, no GitHub account`. It is not sent to GitHub. The other logins still run. Exit codes: `0` nothing found, `1` access found, `2` usage or dependency error, `3` a GitHub API call failed.
 
+Login, organization, team, CODEOWNERS, and search comparisons are case-insensitive. Search queries are sent in lowercase.
+
 The repository list, collaborator lists, CODEOWNERS files, and environment reviewers are fetched once and matched against every login. Organization members are one list per organization. Teams are one GraphQL call per organization. Code search and assignee search run in batches of six logins, which is as many as GitHub's five-`OR` limit allows. Review requests stay one query per live login, because a batched result does not say who was requested.
 
 | Check | Source |
@@ -67,7 +69,7 @@ oc login ...
 | `--idir NAME` | Also match `NAME` and `NAME@idir` (repeatable). |
 | `--json` | JSON output instead of text. |
 
-Each GitHub username is matched as that name and as `name@github`. An email is matched only as itself. Each input is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+Each GitHub username is matched as that name and as `name@github`. An email is matched only as itself. Matching ignores case. Each input is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
 
 Requires `oc` logged in, and `jq`.
 

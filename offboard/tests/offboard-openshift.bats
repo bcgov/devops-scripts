@@ -49,6 +49,20 @@ JSON
   [ "$output" = 3 ]
 }
 
+@test "subject matching is case insensitive" {
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  cat > "$FIXTURES/rb-ns-a" <<'JSON'
+{"items":[
+  {"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@GITHUB"}]},
+  {"metadata":{"name":"rb2"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"first.last@gov.bc.ca"}]}
+]}
+JSON
+  run --separate-stderr "$SCRIPT" --json --email FIRST.LAST@GOV.BC.CA Example-User
+  [ "$status" -eq 1 ]
+  [ "$(echo "$output" | jq '[.sections[] | select(.name == "Example-User") | .findings[]] | length')" = 1 ]
+  [ "$(echo "$output" | jq '[.sections[] | select(.name == "FIRST.LAST@GOV.BC.CA") | .findings[]] | length')" = 1 ]
+}
+
 @test "only read-only calls are made" {
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[]}' > "$FIXTURES/rb-ns-a"

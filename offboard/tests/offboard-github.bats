@@ -155,6 +155,18 @@ JSON
   [ "$output" = 0 ]
 }
 
+@test "matching is case insensitive" {
+  seed_findings
+  run --separate-stderr "$SCRIPT" --json Example-User
+  [ "$status" -eq 1 ]
+  counts="$(echo "$output" | jq -c '.users[0].findings | group_by(.check) | map({(.[0].check): length}) | add')"
+  [ "$counts" = '{"assigned":2,"codeowners":1,"codeowners-search":1,"environment-reviewer":2,"org-membership":1,"repo-collaborator":1,"review-requested":1,"team":1}' ]
+  grep -q 'userLogins:\["example-user"\]' "$STUB_LOG"
+  grep -q 'assignee:example-user' "$STUB_LOG"
+  grep -q 'user-review-requested:example-user' "$STUB_LOG"
+  grep -q 'example-user filename:CODEOWNERS' "$STUB_LOG"
+}
+
 @test "an API failure exits 3" {
   seed_findings
   GH_FAIL_MATCH='environments' run "$SCRIPT" example-user
