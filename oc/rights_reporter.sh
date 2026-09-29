@@ -124,6 +124,7 @@ for p in $(echo "${PROJECTS}" | awk '{print $1}'); do
     fi
     
     # Store project details for team analysis
+    # shellcheck disable=SC2034 # stored but not read yet
     PROJECT_DETAILS["$p"]="$PROJECT_ADMIN_COUNT:$PROJECT_EDIT_COUNT:$PROJECT_VIEW_COUNT"
   else
     echo -e "\nInsufficient rights"
