@@ -62,6 +62,13 @@ seed_github() {
   echo "$output" | grep -qx 'gh api -X DELETE orgs/example-org/members/example-user'
 }
 
+@test "--org is passed through to the GitHub audit" {
+  seed_github
+  OC_WHOAMI_RC=1 run "$SCRIPT" --org=example-org,other-org example-user
+  [ "$status" -eq 1 ]
+  grep -q 'orgs/other-org/members' "$STUB_LOG"
+}
+
 @test "a missing oc login still prints GitHub" {
   seed_github
   OC_WHOAMI_RC=1 run "$SCRIPT" 'example-user=first.last'

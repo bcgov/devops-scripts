@@ -156,6 +156,21 @@ JSON
   [ "$output" = 0 ]
 }
 
+@test "--org accepts a comma list and equals form" {
+  seed_findings
+  run --separate-stderr "$SCRIPT" --json --org=bcgov,other-org --repo example-org/repo-one example-user
+  [ "$(echo "$output" | jq -c '.orgs')" = '["bcgov","other-org"]' ]
+  grep -q 'orgs/bcgov/members' "$STUB_LOG"
+  grep -q 'orgs/other-org/members' "$STUB_LOG"
+}
+
+@test "default organizations are bcgov and bcgov-c" {
+  unset OFFBOARD_ORGS
+  seed_findings
+  run --separate-stderr "$SCRIPT" --json --repo example-org/repo-one example-user
+  [ "$(echo "$output" | jq -c '.orgs')" = '["bcgov","bcgov-c"]' ]
+}
+
 @test "--org-owner prints org and team DELETE commands" {
   seed_findings
   run --separate-stderr "$SCRIPT" --json --org-owner example-user

@@ -28,7 +28,7 @@ GitHub access and ownership, using your own `gh` login.
 
 ./offboard/offboard-github.sh example-user
 
-./offboard/offboard-github.sh --json --org bcgov \
+./offboard/offboard-github.sh --json --org=bcgov,bcgov-c \
   --repo bcgov/example-repo --repo bcgov/another-repo example-user
 
 ./offboard/offboard-github.sh --repo-file repos.txt \
@@ -37,7 +37,7 @@ GitHub access and ownership, using your own `gh` login.
 
 | Option | Meaning |
 | --- | --- |
-| `--org ORG` | Organization to check (repeatable). Default: `OFFBOARD_ORGS` (space- or comma-separated), else `bcgov bcgov-c bcgov-nr`. |
+| `--org ORG` | Organizations to check (repeatable, comma-separated). `--org=bcgov,bcgov-c` is valid. Default: `OFFBOARD_ORGS` (space- or comma-separated), else `bcgov` and `bcgov-c`. |
 | `--org-owner` | Include org and team DELETE commands (needs an org owner or team admin). Default: omit those commands. Membership is still listed. |
 | `--repo OWNER/NAME` | Repository for the per-repo checks (repeatable). |
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
