@@ -22,10 +22,7 @@ seed_github() {
   printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
   printf 'example-user\twrite\n' > "$FIXTURES/collab-all-repo-one"
   printf 'example-user\n' > "$FIXTURES/collab-direct-repo-one"
-  printf 'prod\tUser\texample-user\n' > "$FIXTURES/env-repo-one"
   printf '* @example-user\n' > "$FIXTURES/codeowners-repo-one"
-  echo '{"items":[]}' > "$FIXTURES/search-code"
-  printf 'https://github.com/example-org/repo-one/issues/1\tissue\tAn issue\texample-user\n' > "$FIXTURES/search-assigned"
 }
 
 @test "no arguments off a terminal is a usage error" {
@@ -60,21 +57,11 @@ seed_github() {
   [ -z "$(grep 'oc get rolebindings' "$STUB_LOG" || true)" ]
 }
 
-@test "a late GitHub search failure still prints earlier GitHub findings" {
-  seed_github
-  printf 'ns-a\n' > "$FIXTURES/oc-projects"
-  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
-  GH_FAIL_MATCH='search/code' run "$SCRIPT" example-user
-  [ "$status" -eq 3 ]
-  [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
-  [[ "$output" == *"search failed (HTTP 500)"* ]]
-}
-
 @test "a GitHub API failure still runs OpenShift" {
   seed_github
   printf 'ns-a\n' > "$FIXTURES/oc-projects"
   echo '{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"}]}]}' > "$FIXTURES/rb-ns-a"
-  GH_FAIL_MATCH=environments run "$SCRIPT" example-user
+  GH_FAIL_MATCH=CODEOWNERS run "$SCRIPT" example-user
   [ "$status" -eq 3 ]
   [[ "$output" == *"GitHub audit failed"* ]]
   [[ "$output" == *"example-user@github"* ]]

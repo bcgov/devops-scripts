@@ -113,10 +113,7 @@ gh_titles='
     if . == "org-membership" then "Organization membership"
     elif . == "team" then "Teams"
     elif . == "repo-collaborator" then "Repository access"
-    elif . == "codeowners" then "CODEOWNERS (checked repositories)"
-    elif . == "environment-reviewer" then "Environment required reviewers"
-    elif . == "codeowners-search" then "CODEOWNERS (code search)"
-    elif . == "assigned" then "Open issues and pull requests assigned"
+    elif . == "codeowners" then "CODEOWNERS"
     else . end;
 '
 

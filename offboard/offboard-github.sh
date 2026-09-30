@@ -105,35 +105,8 @@ call() {
 }
 api_error() { fail "gh api $1 failed (HTTP ${API_STATUS}): $(tail -n 1 "$ERRF")"; }
 
-search_call() {
-  local kind="$1" attempt reset now
-  shift
-  for attempt in 1 2 3 4 5; do
-    call "$@" && return 0
-    if [[ "$API_STATUS" =~ ^(403|429)$ ]] && grep -qi 'rate limit' "$ERRF"; then
-      call rate_limit --jq ".resources.${kind}.reset" || api_error rate_limit
-      reset="$API_OUT"
-      now="$(date +%s)"
-      progress "search rate limit reached; waiting $(( reset > now ? reset - now + 1 : 5 ))s (attempt ${attempt})"
-      sleep "$(( reset > now ? reset - now + 1 : 5 ))"
-      continue
-    fi
-    return 1
-  done
-  return 1
-}
-
-# Issue search allows five OR operators, so an assignee query covers at most six logins.
-# Code search rejects a parenthesized OR and returns no hits for a bare OR, so it is one query per login.
-search_expr() {
-  local out="" w
-  for w in "$@"; do out+="${out:+ OR }${w}"; done
-  if [[ $# -gt 1 ]]; then printf '(%s)' "$out"; else printf '%s' "$out"; fi
-}
-
 LIVE=()
 SKIPPED=()
-SEARCH_OK=true
 declare -A SKIPPED_SET=()
 for u in "${USERS[@]}"; do
   if call "users/${u}"; then
@@ -146,8 +119,6 @@ for u in "${USERS[@]}"; do
     api_error "users/${u}"
   fi
 done
-
-declare -A USER_TEAMS=()
 
 if [[ ${#LIVE[@]} -gt 0 ]]; then
   if [[ ${#REPOS[@]} -eq 0 ]]; then
@@ -191,19 +162,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     fi
     call graphql -f query="$CO_QUERY" -f o="${r%%/*}" -f n="${r#*/}" || api_error "graphql CODEOWNERS ${r}"
     printf '%s' "$API_OUT" | jq -r "$CO_JQ" > "$d/codeowners"
-    if call --paginate "repos/${r}/environments?per_page=100" \
-      --jq '.environments[]? | .name as $e | .protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]? | [$e, .type, (.reviewer.login // .reviewer.slug)] | @tsv'; then
-      printf '%s\n' "$API_OUT" > "$d/environments"
-    elif [[ "$API_STATUS" =~ ^(403|404)$ ]]; then
-      : > "$d/environments"
-      note "" "${r}: environments not checked (repository not found or not readable)"
-    else
-      api_error "repos/${r}/environments"
-    fi
   done
-
-  orgs_q=""
-  for o in "${ORGS[@]}"; do orgs_q+=" org:$(lower "$o")"; done
 
   for o in "${ORGS[@]}"; do
     if call --paginate "orgs/$(lower "$o")/members?per_page=100" --jq '.[].login'; then
@@ -239,10 +198,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       [[ -n "$idx" && -n "$slug" ]] || continue
       u="${LIVE[$idx]}"
       slug="$(lower "$slug")"
-      lo="$(lower "$o")"
-      lu="$(lower "$u")"
       finding "$u" team "${o}/${slug}" "member"
-      USER_TEAMS["${lu}|${lo}"]="${USER_TEAMS["${lu}|${lo}"]:-} ${slug}"
     done < <(printf '%s' "$API_OUT" | jq -r --argjson users "$live_json" '
       (.data.organization // {}) | to_entries[]
       | (.key | ltrimstr("u")) as $i
@@ -253,7 +209,6 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     lu="$(lower "$u")"
     for r in "${REPOS[@]}"; do
       d="${TMPD}/repos/${r//\//__}"
-      owner="$(lower "${r%%/*}")"
       if [[ -f "$d/all" ]]; then
         role="$(awk -F'\t' -v u="$lu" 'tolower($1) == u { print $2; exit }' "$d/all")"
         if [[ -n "$role" ]]; then
@@ -267,54 +222,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       while IFS=$'\t' read -r path lineno text; do
         finding "$u" codeowners "$r" "${path}:${lineno}: ${text}"
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
-      while IFS=$'\t' read -r env type who; do
-        lw="$(lower "$who")"
-        if [[ "$type" == "User" && "$lw" == "$lu" ]]; then
-          finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer"
-        elif [[ "$type" == "Team" && " ${USER_TEAMS["${lu}|${owner}"]:-} " == *" ${lw} "* ]]; then
-          finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer through team ${lw}"
-        fi
-      done < "$d/environments"
     done
-  done
-
-  search_stop() {
-    echo "offboard-github: search failed (HTTP ${API_STATUS}): $(tail -n 1 "$ERRF")" >&2
-    note "" "search failed (HTTP ${API_STATUS})"
-    SEARCH_OK=false
-  }
-
-  for u in "${LIVE[@]}"; do
-    [[ "$SEARCH_OK" == true ]] || break
-    lu="$(lower "$u")"
-    search_call code_search --paginate -X GET search/code -f q="${lu} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
-      -H 'Accept: application/vnd.github.text-match+json' || { search_stop; break; }
-    while IFS=$'\t' read -r repo path; do
-      [[ -n "$repo" ]] || continue
-      finding "$u" codeowners-search "$repo" "$path"
-    done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
-      '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
-  done
-
-  i=0
-  while [[ "$SEARCH_OK" == true && $i -lt ${#LIVE[@]} ]]; do
-    chunk=("${LIVE[@]:i:6}")
-    i=$((i + 6))
-    prefixed=()
-    for u in "${chunk[@]}"; do prefixed+=("assignee:$(lower "$u")"); done
-    expr="$(search_expr "${prefixed[@]}")"
-    search_call search --paginate -X GET search/issues -f q="is:open ${expr}${orgs_q}" -f per_page=100 \
-      --jq '.items[]? | .html_url as $u | (if .pull_request then "pull request" else "issue" end) as $k | .title as $t | (.assignees // [])[]? | [$u, $k, $t, .login] | @tsv' \
-      || { search_stop; break; }
-    while IFS=$'\t' read -r url kind title login; do
-      [[ -n "$url" && -n "$login" ]] || continue
-      llogin="$(lower "$login")"
-      for u in "${chunk[@]}"; do
-        if [[ "$(lower "$u")" == "$llogin" ]]; then
-          finding "$u" assigned "$url" "${kind}: ${title}"
-        fi
-      done
-    done <<< "$API_OUT"
   done
 fi
 
@@ -332,8 +240,7 @@ if [[ "$JSON" == "true" ]]; then
 else
   declare -A TITLE=(
     [org-membership]="Organization membership" [team]="Teams" [repo-collaborator]="Repository access"
-    [codeowners]="CODEOWNERS (checked repositories)" [environment-reviewer]="Environment required reviewers"
-    [codeowners-search]="CODEOWNERS (code search)" [assigned]="Open issues and pull requests assigned"
+    [codeowners]="CODEOWNERS"
   )
   echo "Organizations: ${ORGS[*]}; repositories checked: ${#REPOS[@]}"
   for u in "${USERS[@]}"; do
@@ -346,7 +253,7 @@ else
       [[ -n "${SKIPPED_SET[$u]:-}" ]] || echo "   nothing found"
       continue
     fi
-    for c in org-membership team repo-collaborator codeowners environment-reviewer codeowners-search assigned; do
+    for c in org-membership team repo-collaborator codeowners; do
       lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)"' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
@@ -365,6 +272,5 @@ else
   fi
 fi
 
-if [[ "$SEARCH_OK" != true ]]; then exit 3; fi
 [[ "$count" -eq 0 ]] || exit 1
 exit 0
