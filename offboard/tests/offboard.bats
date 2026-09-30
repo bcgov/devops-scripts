@@ -43,6 +43,7 @@ seed_github() {
   [[ "$output" == *"gh api -X DELETE repos/example-org/repo-one/collaborators/example-user"* ]]
   [[ "$output" == *"OpenShift: first.last"* ]]
   [[ "$output" == *"first.last@gov.bc.ca"* ]]
+  [[ "$output" == *"oc adm policy remove-role-from-user"* ]]
   [[ "$output" != *"== first.last"* ]]
 }
 

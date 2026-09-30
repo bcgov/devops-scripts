@@ -45,6 +45,7 @@ JSON
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "first.last") | .findings[]] | length')" = 1 ]
   [ "$(echo "$output" | jq '[.sections[].findings[] | select(.detail | test("someone-else"))] | length')" = 0 ]
   echo "$output" | jq -e '.notes[] | select(test("not readable in 1 namespace"))'
+  echo "$output" | jq -e '.sections[] | select(.name == "example-user") | .findings[] | select(.cmd | test("oc adm policy remove-role-from-user"))'
   run grep -c 'oc get rolebindings' "$STUB_LOG"
   [ "$output" = 3 ]
 }

@@ -157,7 +157,7 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
       else
         block="$(jq -r --arg u "$part" '
           .sections[] | select(.name == $u) | .findings
-          | if length == 0 then empty else .[] | "   - \(.target): \(.detail)" end
+          | if length == 0 then empty else .[] | "   - \(.target): \(.detail)", (if (.cmd // "") != "" then "     \(.cmd)" else empty end) end
         ' "$OC_OUT")"
         if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
       fi

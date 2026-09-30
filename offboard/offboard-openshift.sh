@@ -16,6 +16,9 @@ Options:
   --json         Print JSON instead of text.
   -h, --help     Show this help.
 
+Each finding includes an oc command to remove that User from that role in
+the namespace. This script does not run those commands.
+
 Exit codes: 0 nothing found, 1 access found, 2 usage or dependency error,
             3 an oc call failed.
 EOF
@@ -53,7 +56,7 @@ FINDINGS="${TMPD}/findings.jsonl"
 NOTES="${TMPD}/notes.jsonl"
 : > "$FINDINGS"
 : > "$NOTES"
-finding() { jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" '{user:$u, check:$c, target:$t, detail:$d}' >> "$FINDINGS"; }
+finding() { jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" --arg cmd "${5:-}" '{user:$u, check:$c, target:$t, detail:$d, cmd:$cmd}' >> "$FINDINGS"; }
 note() { jq -nc --arg n "$1" '{note:$n}' >> "$NOTES"; }
 
 if ! projects="$(oc projects -q)"; then
@@ -77,7 +80,8 @@ for ns in "${NAMESPACES[@]}"; do
     for name in "${NAMES[@]}"; do
       needle="$(lower "$name")"
       [[ "$subject_l" == *"$needle"* ]] || continue
-      finding "$name" rolebinding "$ns" "${binding} -> ${role} (subject ${subject_l})"
+      cmd="$(printf 'oc adm policy remove-role-from-user %q %q -n %q' "$role" "$subject" "$ns")"
+      finding "$name" rolebinding "$ns" "${binding} -> ${role} (subject ${subject_l})" "$cmd"
     done
   done < <(printf '%s' "$rb" | jq -r \
     '.items[] | .metadata.name as $b | .roleRef.name as $r | .subjects[]? | select(.kind == "User") | [.name, $b, $r] | @tsv')
@@ -99,7 +103,7 @@ else
       continue
     fi
     echo "  RoleBindings"
-    jq -r --arg u "$u" 'select(.user == $u) | "   - \(.target): \(.detail)"' "$FINDINGS"
+    jq -r --arg u "$u" 'select(.user == $u) | "   - \(.target): \(.detail)", (if .cmd != "" then "     \(.cmd)" else empty end)' "$FINDINGS"
   done
   if [[ -s "$NOTES" ]]; then
     echo

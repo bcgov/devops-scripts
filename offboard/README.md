@@ -79,7 +79,7 @@ oc login ...
 | `--name STRING` | Name to search for (repeatable). A User subject matches when it contains the name. |
 | `--json` | JSON output instead of text. |
 
-Matching ignores case. No suffix is added. Each name is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+Matching ignores case. No suffix is added. Each name is its own section, and the detail line shows the subject string that matched. Each finding prints `oc adm policy remove-role-from-user` for that subject; the audit does not run it. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
 
 Requires `oc` logged in, and `jq`.
 
