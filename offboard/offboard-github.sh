@@ -89,8 +89,13 @@ ERRF="${TMPD}/err"
 USERS_FILE="${TMPD}/users"
 printf '%s\n' "${USERS[@]}" | tr '[:upper:]' '[:lower:]' > "$USERS_FILE"
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_DROP="${DIR}/github-drop-env-reviewer.sh"
+# GitHub has no DELETE for one environment reviewer. PUT the remaining list.
+env_drop_cmd() {
+  local jqf
+  jqf='(.protection_rules // []) as $rules | {wait_timer: ([$rules[] | select(.type == "wait_timer") | .wait_timer][0] // 0), prevent_self_review: ([$rules[] | select(.type == "required_reviewers") | .prevent_self_review][0] // false), reviewers: [$rules[] | select(.type == "required_reviewers") | .reviewers[]? | select((.reviewer.id // .id) != $uid) | {type, id: (.reviewer.id // .id)}]}'
+  printf 'uid=$(gh api users/%s | jq .id)\ngh api repos/%s/environments/%s | jq -c --argjson uid "$uid" '\''%s'\'' | gh api -X PUT repos/%s/environments/%s --input -\n' \
+    "$3" "$1" "$2" "$jqf" "$1" "$2"
+}
 
 finding() { jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" --arg cmd "${5:-}" '{user:$u, check:$c, target:$t, detail:$d, cmd:$cmd}' >> "$FINDINGS"; }
 note() { jq -nc --arg u "$1" --arg n "$2" '{user:$u, note:$n}' >> "$NOTES"; }
@@ -258,7 +263,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
       while IFS=$'\t' read -r env type who; do
         [[ "$type" == "User" && "$(lower "$who")" == "$lu" ]] || continue
-        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "${ENV_DROP} ${r} ${env} ${u}"
+        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "$(env_drop_cmd "$r" "$env" "$u")"
       done < "$d/environments"
     done
   done

@@ -93,8 +93,8 @@ JSON
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer" and (.detail | test("environment prod")))'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "org-membership") | .cmd | test("# org owner")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator") | .cmd | test("gh api -X DELETE repos/example-org/repo-one/collaborators/example-user")'
-  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("github-drop-env-reviewer.sh")'
-  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("repo admin") | not'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("gh api -X PUT repos/example-org/repo-one/environments/prod")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("github-drop-env-reviewer") | not'
   [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("team-a|repo-four|example-user-two"))] | length')" = 0 ]
 }
 
@@ -111,6 +111,7 @@ JSON
   [[ "$output" != *"repo admin:"* ]]
   [[ "$output" == *"CODEOWNERS (code search)"* ]]
   [[ "$output" == *"Environment required reviewers"* ]]
+  [[ "$output" == *"gh api -X PUT repos/example-org/repo-one/environments/prod"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]
 }
 
@@ -184,7 +185,8 @@ JSON
   [[ "$output" == *"search failed (HTTP 500)"* ]]
 }
 
-@test "github-drop-env-reviewer puts remaining reviewers" {
+@test "environment-reviewer cleanup command puts remaining reviewers" {
+  seed_findings
   cat > "$FIXTURES/env-one" <<'JSON'
 {"protection_rules":[
   {"type":"wait_timer","wait_timer":5},
@@ -194,7 +196,11 @@ JSON
   ]}
 ]}
 JSON
-  run "${BATS_TEST_DIRNAME}/../github-drop-env-reviewer.sh" example-org/repo-one prod example-user
+  run --separate-stderr "$SCRIPT" --json example-user
+  [ "$status" -eq 1 ]
+  cmd="$(echo "$output" | jq -r '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd')"
+  [[ "$cmd" != *"github-drop-env-reviewer"* ]]
+  run bash -c "$cmd"
   [ "$status" -eq 0 ]
   grep -q -- '-X PUT repos/example-org/repo-one/environments/prod' "$STUB_LOG"
 }
