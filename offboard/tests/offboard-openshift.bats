@@ -46,6 +46,8 @@ JSON
   [ "$(echo "$output" | jq '[.sections[].findings[] | select(.detail | test("someone-else"))] | length')" = 0 ]
   echo "$output" | jq -e '.notes[] | select(test("not readable in 1 namespace"))'
   echo "$output" | jq -e '.sections[] | select(.name == "example-user") | .findings[] | select(.cmd | test("oc adm policy remove-role-from-user"))'
+  echo "$output" | jq -e '.sections[] | select(.name == "example-user") | .findings[] | select(.detail == "rb1 -> admin")'
+  [ "$(echo "$output" | jq '[.sections[].findings[] | select(.detail | test("subject"))] | length')" = 0 ]
   run grep -c 'oc get rolebindings' "$STUB_LOG"
   [ "$output" = 3 ]
 }
@@ -64,6 +66,17 @@ JSON
   run --separate-stderr "$SCRIPT" --json --name Example-User
   [ "$status" -eq 1 ]
   [ "$(echo "$output" | jq '[.sections[] | select(.name == "Example-User") | .findings[]] | length')" = 1 ]
+}
+
+@test "text output prints oc commands at column 0" {
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[{"metadata":{"name":"rb1"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"example-user@github"}]}]}' > "$FIXTURES/rb-ns-a"
+  run --separate-stderr "$SCRIPT" --name example-user
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"rb1 -> admin"* ]]
+  [[ "$output" != *"(subject "* ]]
+  echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin example-user@github -n ns-a'
+  [ -z "$(echo "$output" | grep -E '^ +oc adm' || true)" ]
 }
 
 @test "only read-only calls are made" {

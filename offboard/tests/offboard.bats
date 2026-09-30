@@ -45,6 +45,11 @@ seed_github() {
   [[ "$output" == *"first.last@gov.bc.ca"* ]]
   [[ "$output" == *"oc adm policy remove-role-from-user"* ]]
   [[ "$output" != *"== first.last"* ]]
+  echo "$output" | grep -qx 'gh api -X DELETE repos/example-org/repo-one/collaborators/example-user'
+  echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin example-user@github -n ns-a'
+  echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin first.last@gov.bc.ca -n ns-a'
+  [ -z "$(echo "$output" | grep -E '^ +(gh api|oc adm)' || true)" ]
+  [[ "$output" != *"(subject "* ]]
 }
 
 @test "a missing oc login still prints GitHub" {

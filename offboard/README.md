@@ -42,7 +42,7 @@ GitHub access and ownership, using your own `gh` login.
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
 | `--json` | JSON output instead of text. |
 
-Each finding prints a cleanup command. The audit does not run it. Notes that are not commands start with `#` so they are safe to paste. Org and team deletes need an org owner (or team admin). Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. GitHub has no per-reviewer delete; the helper PUTs the remaining required-reviewer list.
+Each finding includes a cleanup command in JSON. In text output, notes that are only `#` lines stay under the finding. Commands that can be run (`gh`, `oc`, the environment helper) are printed again at column 0 after that person, so they paste into a shell and into bash history. The audit does not run them. Org and team deletes need an org owner (or team admin). Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. GitHub has no per-reviewer delete; the helper PUTs the remaining required-reviewer list.
 
 Login, organization, team, and CODEOWNERS comparisons are case-insensitive.
 
@@ -79,7 +79,7 @@ oc login ...
 | `--name STRING` | Name to search for (repeatable). A User subject matches when it contains the name. |
 | `--json` | JSON output instead of text. |
 
-Matching ignores case. No suffix is added. Each name is its own section, and the detail line shows the subject string that matched. Each finding prints `oc adm policy remove-role-from-user` for that subject; the audit does not run it. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+Matching ignores case. No suffix is added. Each name is its own section, and the detail line is `binding -> role`. The `oc` command is printed at column 0 after that name; the audit does not run it. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
 
 Requires `oc` logged in, and `jq`.
 

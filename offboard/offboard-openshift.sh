@@ -81,7 +81,7 @@ for ns in "${NAMESPACES[@]}"; do
       needle="$(lower "$name")"
       [[ "$subject_l" == *"$needle"* ]] || continue
       cmd="$(printf 'oc adm policy remove-role-from-user %q %q -n %q' "$role" "$subject" "$ns")"
-      finding "$name" rolebinding "$ns" "${binding} -> ${role} (subject ${subject_l})" "$cmd"
+      finding "$name" rolebinding "$ns" "${binding} -> ${role}" "$cmd"
     done
   done < <(printf '%s' "$rb" | jq -r \
     '.items[] | .metadata.name as $b | .roleRef.name as $r | .subjects[]? | select(.kind == "User") | [.name, $b, $r] | @tsv')
@@ -103,7 +103,12 @@ else
       continue
     fi
     echo "  RoleBindings"
-    jq -r --arg u "$u" 'select(.user == $u) | "   - \(.target): \(.detail)", (if .cmd != "" then "     \(.cmd)" else empty end)' "$FINDINGS"
+    jq -r --arg u "$u" 'select(.user == $u) | "   - \(.target): \(.detail)"' "$FINDINGS"
+    paste="$(jq -r --arg u "$u" 'select(.user == $u and (.cmd // "") != "") | .cmd' "$FINDINGS")"
+    if [[ -n "$paste" ]]; then
+      echo
+      echo "$paste"
+    fi
   done
   if [[ -s "$NOTES" ]]; then
     echo

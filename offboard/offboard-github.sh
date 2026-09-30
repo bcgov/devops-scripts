@@ -312,11 +312,29 @@ else
       continue
     fi
     for c in org-membership team repo-collaborator codeowners codeowners-search environment-reviewer; do
-      lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)", (if .cmd != "" then (.cmd | split("\n")[] | "     \(.)") else empty end)' "$FINDINGS")"
+      lines="$(jq -r --arg u "$u" --arg c "$c" '
+        def note:
+          (.cmd // "") as $c
+          | ($c | split("\n") | map(select(length > 0)) | (length == 0 or all(test("^#"))));
+        select(.user == $u and .check == $c)
+        | "   - \(.target): \(.detail)",
+          (if (.cmd // "") != "" and note then (.cmd | split("\n")[] | select(length > 0) | "    \(.)") else empty end)
+      ' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
       echo "$lines"
     done
+    paste="$(jq -r --arg u "$u" '
+      def note:
+        (.cmd // "") as $c
+        | ($c | split("\n") | map(select(length > 0)) | (length == 0 or all(test("^#"))));
+      select(.user == $u and (.cmd // "") != "" and (note | not))
+      | .cmd | split("\n")[] | select(length > 0)
+    ' "$FINDINGS")"
+    if [[ -n "$paste" ]]; then
+      echo
+      echo "$paste"
+    fi
   done
   if [[ -s "$NOTES" ]]; then
     echo

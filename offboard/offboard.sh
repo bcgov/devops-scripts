@@ -94,7 +94,7 @@ ran_oc=false
 if ! command -v oc >/dev/null 2>&1 || ! oc whoami >/dev/null 2>&1; then
   echo "OpenShift skipped: oc is not logged in"
   echo "Run this where oc is logged in:"
-  printf ' %q' "$OC_SCRIPT"
+  printf '%q' "$OC_SCRIPT"
   for n in "${NEEDLES[@]}"; do printf ' --name %q' "$n"; done
   printf '\n'
 else
@@ -117,6 +117,9 @@ gh_titles='
     elif . == "codeowners-search" then "CODEOWNERS (code search)"
     elif . == "environment-reviewer" then "Environment required reviewers"
     else . end;
+  def note:
+    (.cmd // "") as $c
+    | ($c | split("\n") | map(select(length > 0)) | (length == 0 or all(test("^#"))));
 '
 
 i=0
@@ -125,6 +128,8 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
   echo "== ${P_SPEC[$i]}"
   IFS=$'\t' read -r -a parts <<< "${P_NAMES[$i]}"
   shown=" "
+  paste_file="${TMPD}/paste-${i}"
+  : > "$paste_file"
   for part in "${parts[@]}"; do
     lpart="$(lower "$part")"
     if is_login "$part" && [[ "$shown" != *" ${lpart} "* ]]; then
@@ -139,7 +144,9 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
       else
         block="$(jq -r --arg u "$part" "$gh_titles"'
           .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings
-          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)", (.[] | "   - \(.target): \(.detail)", (if (.cmd // "") != "" then (.cmd | split("\n")[] | "     \(.)") else empty end)) end
+          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)",
+            (.[] | "   - \(.target): \(.detail)",
+              (if (.cmd // "") != "" and note then (.cmd | split("\n")[] | select(length > 0) | "    \(.)") else empty end)) end
         ' "$GH_OUT")"
         if [[ -n "$block" ]]; then
           echo "$block"
@@ -148,6 +155,11 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
         else
           echo "   nothing found"
         fi
+        jq -r --arg u "$part" "$gh_titles"'
+          .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings[]
+          | select((.cmd // "") != "" and (note | not))
+          | .cmd | split("\n")[] | select(length > 0)
+        ' "$GH_OUT" >> "$paste_file"
       fi
     fi
     if [[ "$ran_oc" == true ]]; then
@@ -157,12 +169,20 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
       else
         block="$(jq -r --arg u "$part" '
           .sections[] | select(.name == $u) | .findings
-          | if length == 0 then empty else .[] | "   - \(.target): \(.detail)", (if (.cmd // "") != "" then "     \(.cmd)" else empty end) end
+          | if length == 0 then empty else .[] | "   - \(.target): \(.detail)" end
         ' "$OC_OUT")"
         if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
+        jq -r --arg u "$part" '
+          .sections[] | select(.name == $u) | .findings[]
+          | select((.cmd // "") != "") | .cmd
+        ' "$OC_OUT" >> "$paste_file"
       fi
     fi
   done
+  if [[ -s "$paste_file" ]]; then
+    echo
+    cat "$paste_file"
+  fi
   i=$((i + 1))
 done
 

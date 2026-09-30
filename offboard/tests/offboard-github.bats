@@ -113,6 +113,11 @@ JSON
   [[ "$output" == *"Environment required reviewers"* ]]
   [[ "$output" == *"github-drop-env-reviewer.sh"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]
+  echo "$output" | grep -qx 'gh api -X DELETE repos/example-org/repo-one/collaborators/example-user'
+  echo "$output" | grep -qx 'gh api -X DELETE orgs/example-org/members/example-user'
+  echo "$output" | grep -qx '# org owner'
+  [ -z "$(echo "$output" | grep -E '^ +gh api' || true)" ]
+  echo "$output" | grep -qE '^    # edit '
 }
 
 @test "--repo and --repo-file replace the default repo set" {
