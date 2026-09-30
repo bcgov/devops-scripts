@@ -42,7 +42,7 @@ GitHub access and ownership, using your own `gh` login.
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
 | `--json` | JSON output instead of text. |
 
-Each finding prints a cleanup command. The audit does not run it. Notes that are not commands start with `#` so they are safe to paste. Org and team deletes need an org owner (or team admin). Direct collaborator deletes and the environment PUT need repository admin. GitHub has no per-reviewer delete; that PUT sends the remaining required-reviewer list.
+Each finding prints a cleanup command. The audit does not run it. Notes that are not commands start with `#` so they are safe to paste. Org and team deletes need an org owner (or team admin). Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. GitHub has no per-reviewer delete; the helper PUTs the remaining required-reviewer list.
 
 Login, organization, team, and CODEOWNERS comparisons are case-insensitive.
 
