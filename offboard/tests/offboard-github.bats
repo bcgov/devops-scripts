@@ -91,9 +91,10 @@ JSON
   [ "$(echo "$output" | jq -r '.repos_checked')" = 1 ]
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator" and .detail == "write (direct)")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer" and (.detail | test("environment prod")))'
-  echo "$output" | jq -e '.users[0].findings[] | select(.check == "org-membership") | .cmd | test("org owner: gh api -X DELETE")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "org-membership") | .cmd | test("# org owner")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator") | .cmd | test("gh api -X DELETE repos/example-org/repo-one/collaborators/example-user")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("github-drop-env-reviewer.sh")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("repo admin") | not'
   [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("team-a|repo-four|example-user-two"))] | length')" = 0 ]
 }
 
@@ -105,7 +106,9 @@ JSON
   [[ "$output" == *"Repository access"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
   [[ "$output" == *"gh api -X DELETE repos/example-org/repo-one/collaborators/example-user"* ]]
-  [[ "$output" == *"org owner: gh api -X DELETE orgs/example-org/members/example-user"* ]]
+  [[ "$output" == *"gh api -X DELETE orgs/example-org/members/example-user"* ]]
+  [[ "$output" == *"# org owner"* ]]
+  [[ "$output" != *"repo admin:"* ]]
   [[ "$output" == *"CODEOWNERS (code search)"* ]]
   [[ "$output" == *"Environment required reviewers"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]

@@ -139,7 +139,7 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
       else
         block="$(jq -r --arg u "$part" "$gh_titles"'
           .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings
-          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)", (.[] | "   - \(.target): \(.detail)", (if (.cmd // "") != "" then "     \(.cmd)" else empty end)) end
+          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)", (.[] | "   - \(.target): \(.detail)", (if (.cmd // "") != "" then (.cmd | split("\n")[] | "     \(.)") else empty end)) end
         ' "$GH_OUT")"
         if [[ -n "$block" ]]; then
           echo "$block"

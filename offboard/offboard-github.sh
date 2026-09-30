@@ -208,7 +208,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     fi
     for u in "${LIVE[@]}"; do
       if grep -qxF "$(lower "$u")" "$TMPD/members"; then
-        finding "$u" org-membership "$o" "member" "org owner: gh api -X DELETE orgs/${o}/members/${u}"
+        finding "$u" org-membership "$o" "member" $'# org owner\ngh api -X DELETE orgs/'"${o}"'/members/'"${u}"
       fi
     done
 
@@ -232,7 +232,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       [[ -n "$idx" && -n "$slug" ]] || continue
       u="${LIVE[$idx]}"
       slug="$(lower "$slug")"
-      finding "$u" team "${o}/${slug}" "member" "org owner or team admin: gh api -X DELETE orgs/${o}/teams/${slug}/memberships/${u}"
+      finding "$u" team "${o}/${slug}" "member" $'# org owner or team admin\ngh api -X DELETE orgs/'"${o}"'/teams/'"${slug}"'/memberships/'"${u}"
     done < <(printf '%s' "$API_OUT" | jq -r --argjson users "$live_json" '
       (.data.organization // {}) | to_entries[]
       | (.key | ltrimstr("u")) as $i
@@ -249,16 +249,16 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
           if grep -qixF "$u" "$d/direct"; then
             finding "$u" repo-collaborator "$r" "${role} (direct)" "gh api -X DELETE repos/${r}/collaborators/${u}"
           else
-            finding "$u" repo-collaborator "$r" "${role} (through a team or organization role)" "skip: access is via team or org"
+            finding "$u" repo-collaborator "$r" "${role} (through a team or organization role)" "# skip: access is via team or org"
           fi
         fi
       fi
       while IFS=$'\t' read -r path lineno text; do
-        finding "$u" codeowners "$r" "${path}:${lineno}: ${text}" "edit ${r} ${path} and remove @${u}"
+        finding "$u" codeowners "$r" "${path}:${lineno}: ${text}" "# edit ${r} ${path} and remove @${u}"
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
       while IFS=$'\t' read -r env type who; do
         [[ "$type" == "User" && "$(lower "$who")" == "$lu" ]] || continue
-        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "repo admin: ${ENV_DROP} ${r} ${env} ${u}"
+        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "${ENV_DROP} ${r} ${env} ${u}"
       done < "$d/environments"
     done
   done
@@ -277,7 +277,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       -H 'Accept: application/vnd.github.text-match+json' || { search_stop; break; }
     while IFS=$'\t' read -r repo path; do
       [[ -n "$repo" ]] || continue
-      finding "$u" codeowners-search "$repo" "$path" "edit ${repo} ${path} and remove @${u}"
+      finding "$u" codeowners-search "$repo" "$path" "# edit ${repo} ${path} and remove @${u}"
     done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
       '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
   done
@@ -312,7 +312,7 @@ else
       continue
     fi
     for c in org-membership team repo-collaborator codeowners codeowners-search environment-reviewer; do
-      lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)", (if .cmd != "" then "     \(.cmd)" else empty end)' "$FINDINGS")"
+      lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)", (if .cmd != "" then (.cmd | split("\n")[] | "     \(.)") else empty end)' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
       echo "$lines"
