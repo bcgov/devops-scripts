@@ -42,7 +42,7 @@ GitHub access and ownership, using your own `gh` login.
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
 | `--json` | JSON output instead of text. |
 
-A login GitHub does not have is printed under that name and again under `Skipped, no GitHub account`. It is not sent to GitHub. The other logins still run. Exit codes: `0` nothing found, `1` access found, `2` usage or dependency error, `3` a GitHub API call failed.
+Each finding prints a cleanup command. The audit does not run it. Org and team deletes need an org owner (or team admin). Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. CODEOWNERS is an edit, not an API call. Access through a team or org is labeled `skip`.
 
 Login, organization, team, and CODEOWNERS comparisons are case-insensitive.
 

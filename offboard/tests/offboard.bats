@@ -40,6 +40,7 @@ seed_github() {
   [[ "$output" == *"== example-user=first.last"* ]]
   [[ "$output" == *"GitHub: example-user"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"gh api -X DELETE repos/example-org/repo-one/collaborators/example-user"* ]]
   [[ "$output" == *"OpenShift: first.last"* ]]
   [[ "$output" == *"first.last@gov.bc.ca"* ]]
   [[ "$output" != *"== first.last"* ]]

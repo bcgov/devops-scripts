@@ -91,6 +91,9 @@ JSON
   [ "$(echo "$output" | jq -r '.repos_checked')" = 1 ]
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator" and .detail == "write (direct)")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer" and (.detail | test("environment prod")))'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "org-membership") | .cmd | test("org owner: gh api -X DELETE")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator") | .cmd | test("gh api -X DELETE repos/example-org/repo-one/collaborators/example-user")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("github-drop-env-reviewer.sh")'
   [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("team-a|repo-four|example-user-two"))] | length')" = 0 ]
 }
 
@@ -101,6 +104,8 @@ JSON
   [[ "$output" == *"== example-user"* ]]
   [[ "$output" == *"Repository access"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"gh api -X DELETE repos/example-org/repo-one/collaborators/example-user"* ]]
+  [[ "$output" == *"org owner: gh api -X DELETE orgs/example-org/members/example-user"* ]]
   [[ "$output" == *"CODEOWNERS (code search)"* ]]
   [[ "$output" == *"Environment required reviewers"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]
@@ -174,4 +179,19 @@ JSON
   [ "$status" -eq 3 ]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
   [[ "$output" == *"search failed (HTTP 500)"* ]]
+}
+
+@test "github-drop-env-reviewer puts remaining reviewers" {
+  cat > "$FIXTURES/env-one" <<'JSON'
+{"protection_rules":[
+  {"type":"wait_timer","wait_timer":5},
+  {"type":"required_reviewers","prevent_self_review":true,"reviewers":[
+    {"type":"User","reviewer":{"id":1,"login":"example-user"}},
+    {"type":"User","reviewer":{"id":2,"login":"keep-me"}}
+  ]}
+]}
+JSON
+  run "${BATS_TEST_DIRNAME}/../github-drop-env-reviewer.sh" example-org/repo-one prod example-user
+  [ "$status" -eq 0 ]
+  grep -q -- '-X PUT repos/example-org/repo-one/environments/prod' "$STUB_LOG"
 }
