@@ -95,6 +95,8 @@ JSON
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator") | .cmd | test("gh api -X DELETE repos/example-org/repo-one/collaborators/example-user")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("github-drop-env-reviewer.sh")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("repo admin") | not'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "codeowners" and .detail == ".github/codeowners" and .cmd == "")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "codeowners-search" and .target == "example-org/repo-three" and .detail == ".github/CODEOWNERS")'
   [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("team-a|repo-four|example-user-two"))] | length')" = 0 ]
 }
 
@@ -110,6 +112,10 @@ JSON
   [[ "$output" == *"# org owner"* ]]
   [[ "$output" != *"repo admin:"* ]]
   [[ "$output" == *"CODEOWNERS (code search)"* ]]
+  [[ "$output" == *"example-org/repo-one: .github/codeowners"* ]]
+  [[ "$output" == *"example-org/repo-three: .github/CODEOWNERS"* ]]
+  [[ "$output" != *"@example-admin"* ]]
+  [[ "$output" != *"# edit"* ]]
   [[ "$output" == *"Environment required reviewers"* ]]
   [[ "$output" == *"github-drop-env-reviewer.sh"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]
@@ -117,7 +123,6 @@ JSON
   echo "$output" | grep -qx 'gh api -X DELETE orgs/example-org/members/example-user'
   echo "$output" | grep -qx '# org owner'
   [ -z "$(echo "$output" | grep -E '^ +gh api' || true)" ]
-  echo "$output" | grep -qE '^    # edit '
 }
 
 @test "--repo and --repo-file replace the default repo set" {

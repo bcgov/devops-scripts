@@ -53,8 +53,8 @@ The repository list, collaborator lists, and CODEOWNERS files are fetched once a
 | Organization membership | `GET /orgs/{org}/members`, then a local match |
 | Teams | One GraphQL call per organization for every live login, then a local match |
 | Repository access | Collaborator permission on each target repository, marked direct or through a team or organization role |
-| CODEOWNERS | `@user` entries in the target repositories' CODEOWNERS file (`.github/`, root or `docs/`), comments ignored |
-| CODEOWNERS (code search) | CODEOWNERS files across the organizations that mention the login, including repositories you do not admin |
+| CODEOWNERS | CODEOWNERS files in the target repositories that mention `@user`. Listed as `OWNER/REPO: path`. The matching line is not printed. |
+| CODEOWNERS (code search) | The same list for CODEOWNERS files across the organizations, including repositories you do not admin. A file already listed above is not repeated. |
 | Environment required reviewers | People listed on a repository environment protection rule. A team on that rule is not listed here. |
 
 The target repositories are those given with `--repo` or `--repo-file`. Without either, they are the repositories in the configured organizations where you have admin (`gh api user/repos` with `permissions.admin`).

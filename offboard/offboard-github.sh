@@ -239,6 +239,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       | .value.nodes[]? | [$i, .slug] | @tsv')
   done
 
+  declare -A SEEN_CO=()
   for u in "${USERS[@]}"; do
     lu="$(lower "$u")"
     for r in "${REPOS[@]}"; do
@@ -253,8 +254,12 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
           fi
         fi
       fi
-      while IFS=$'\t' read -r path lineno text; do
-        finding "$u" codeowners "$r" "${path}:${lineno}: ${text}" "# edit ${r} ${path} and remove @${u}"
+      while IFS=$'\t' read -r path _; do
+        [[ -n "$path" ]] || continue
+        key="$(lower "$u") $(lower "$r") $(lower "$path")"
+        [[ -n "${SEEN_CO[$key]:-}" ]] && continue
+        SEEN_CO[$key]=1
+        finding "$u" codeowners "$r" "$path" ""
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
       while IFS=$'\t' read -r env type who; do
         [[ "$type" == "User" && "$(lower "$who")" == "$lu" ]] || continue
@@ -277,7 +282,10 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       -H 'Accept: application/vnd.github.text-match+json' || { search_stop; break; }
     while IFS=$'\t' read -r repo path; do
       [[ -n "$repo" ]] || continue
-      finding "$u" codeowners-search "$repo" "$path" "# edit ${repo} ${path} and remove @${u}"
+      key="$(lower "$u") $(lower "$repo") $(lower "$path")"
+      [[ -n "${SEEN_CO[$key]:-}" ]] && continue
+      SEEN_CO[$key]=1
+      finding "$u" codeowners-search "$repo" "$path" ""
     done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
       '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
   done
