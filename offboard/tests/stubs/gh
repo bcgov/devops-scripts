@@ -12,7 +12,7 @@ if [[ -n "${GH_FAIL_MATCH:-}" && "$args" == *"${GH_FAIL_MATCH}"* ]]; then
   echo "gh: Server Error (HTTP 500)" >&2; exit 1
 fi
 case "$args" in
-  users/*) [[ "$args" == users/missing-user* ]] && not_found; echo '{}' ;;
+  users/*) [[ "$args" == users/missing-user* ]] && not_found; echo '{"id":1}' ;;
   *user/repos*) emit user-repos ;;
   *orgs/*/members\?per_page*)
     org="${args#*orgs/}"; org="${org%%/*}"
@@ -56,7 +56,10 @@ case "$args" in
     fi ;;
   *collaborators\?affiliation=all*) repo="${args#*repos/*/}"; emit "collab-all-${repo%%/*}" 404 ;;
   *collaborators\?affiliation=direct*) repo="${args#*repos/*/}"; emit "collab-direct-${repo%%/*}" ;;
-  *environments*) repo="${args#*repos/*/}"; emit "env-${repo%%/*}" ;;
+  *environments*)
+    if [[ "$args" == *-X\ PUT* ]]; then echo '{}'; exit 0; fi
+    if [[ "$args" == *'environments?per_page'* ]]; then repo="${args#*repos/*/}"; emit "env-${repo%%/*}"; fi
+    emit env-one ;;
   *search/code*) [[ -f "${FIXTURES}/search-code" ]] && emit search-code; echo '{"items":[]}' ;;
   rate_limit*) date +%s ;;
   *) echo "stub gh: unexpected api call: $args" >&2; exit 98 ;;

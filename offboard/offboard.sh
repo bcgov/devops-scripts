@@ -9,8 +9,7 @@ OC_SCRIPT="${DIR}/offboard-openshift.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  offboard.sh
-  offboard.sh PERSON [PERSON...]
+  offboard.sh [--org-owner] PERSON [PERSON...]
 
 A person is a GitHub login, or several names joined with = :
   gpascucci=greg.pascucci
@@ -18,6 +17,9 @@ A person is a GitHub login, or several names joined with = :
 Each name is searched for as written. OpenShift matches when the User
 subject contains the name. No suffix is added. Names that are valid GitHub
 logins are also sent to the GitHub audit. Matching ignores case.
+
+--org-owner includes GitHub org and team DELETE commands (needs an org
+owner or team admin). Default: omit those commands. Membership is still listed.
 
 With no arguments in a terminal, asks for the people. If oc is not logged
 in, the GitHub report is still printed and OpenShift is skipped.
@@ -29,8 +31,10 @@ lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 is_login() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]]; }
 
 PERSONS=()
+ORG_OWNER=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --org-owner) ORG_OWNER=true; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; PERSONS+=("$@"); break ;;
     -*) usage >&2; die "unknown option: $1" ;;
@@ -83,7 +87,10 @@ echo '{"sections":[],"notes":[]}' > "$OC_OUT"
 gh_rc=0
 if [[ ${#LOGINS[@]} -gt 0 ]]; then
   set +e
-  "$GH_SCRIPT" --json -- "${LOGINS[@]}" > "$GH_OUT"
+  gh_cmd=("$GH_SCRIPT" --json)
+  [[ "$ORG_OWNER" == true ]] && gh_cmd+=(--org-owner)
+  gh_cmd+=(-- "${LOGINS[@]}")
+  "${gh_cmd[@]}" > "$GH_OUT"
   gh_rc=$?
   set -e
   jq -e . "$GH_OUT" >/dev/null 2>&1 || echo '{"users":[],"skipped":[],"notes":[]}' > "$GH_OUT"
@@ -94,7 +101,7 @@ ran_oc=false
 if ! command -v oc >/dev/null 2>&1 || ! oc whoami >/dev/null 2>&1; then
   echo "OpenShift skipped: oc is not logged in"
   echo "Run this where oc is logged in:"
-  printf ' %q' "$OC_SCRIPT"
+  printf '%q' "$OC_SCRIPT"
   for n in "${NEEDLES[@]}"; do printf ' --name %q' "$n"; done
   printf '\n'
 else
@@ -117,6 +124,9 @@ gh_titles='
     elif . == "codeowners-search" then "CODEOWNERS (code search)"
     elif . == "environment-reviewer" then "Environment required reviewers"
     else . end;
+  def note:
+    (.cmd // "") as $c
+    | ($c | split("\n") | map(select(length > 0)) | (length == 0 or all(test("^#"))));
 '
 
 i=0
@@ -125,6 +135,8 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
   echo "== ${P_SPEC[$i]}"
   IFS=$'\t' read -r -a parts <<< "${P_NAMES[$i]}"
   shown=" "
+  paste_file="${TMPD}/paste-${i}"
+  : > "$paste_file"
   for part in "${parts[@]}"; do
     lpart="$(lower "$part")"
     if is_login "$part" && [[ "$shown" != *" ${lpart} "* ]]; then
@@ -139,7 +151,9 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
       else
         block="$(jq -r --arg u "$part" "$gh_titles"'
           .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings
-          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)", (.[] | "   - \(.target): \(.detail)") end
+          | if length == 0 then empty else group_by(.check)[] | "  \(.[0].check | title)",
+            (.[] | "   - \(.target): \(.detail)",
+              (if (.cmd // "") != "" and note then (.cmd | split("\n")[] | select(length > 0) | "    \(.)") else empty end)) end
         ' "$GH_OUT")"
         if [[ -n "$block" ]]; then
           echo "$block"
@@ -148,6 +162,11 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
         else
           echo "   nothing found"
         fi
+        jq -r --arg u "$part" "$gh_titles"'
+          .users[] | select((.user | ascii_downcase) == ($u | ascii_downcase)) | .findings[]
+          | select((.cmd // "") != "" and (note | not))
+          | .cmd | split("\n")[] | select(length > 0)
+        ' "$GH_OUT" >> "$paste_file"
       fi
     fi
     if [[ "$ran_oc" == true ]]; then
@@ -160,9 +179,17 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
           | if length == 0 then empty else .[] | "   - \(.target): \(.detail)" end
         ' "$OC_OUT")"
         if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
+        jq -r --arg u "$part" '
+          .sections[] | select(.name == $u) | .findings[]
+          | select((.cmd // "") != "") | .cmd
+        ' "$OC_OUT" >> "$paste_file"
       fi
     fi
   done
+  if [[ -s "$paste_file" ]]; then
+    echo
+    cat "$paste_file"
+  fi
   i=$((i + 1))
 done
 

@@ -40,9 +40,26 @@ seed_github() {
   [[ "$output" == *"== example-user=first.last"* ]]
   [[ "$output" == *"GitHub: example-user"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"gh api -X DELETE repos/example-org/repo-one/collaborators/example-user"* ]]
   [[ "$output" == *"OpenShift: first.last"* ]]
   [[ "$output" == *"first.last@gov.bc.ca"* ]]
+  [[ "$output" == *"oc adm policy remove-role-from-user"* ]]
   [[ "$output" != *"== first.last"* ]]
+  echo "$output" | grep -qx 'gh api -X DELETE repos/example-org/repo-one/collaborators/example-user'
+  echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin example-user@github -n ns-a'
+  echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin first.last@gov.bc.ca -n ns-a'
+  [ -z "$(echo "$output" | grep -E '^ +(gh api|oc adm)' || true)" ]
+  [[ "$output" != *"(subject "* ]]
+  [[ "$output" != *"gh api -X DELETE orgs/"* ]]
+}
+
+@test "--org-owner includes org DELETE commands" {
+  seed_github
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
+  run "$SCRIPT" --org-owner example-user
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qx 'gh api -X DELETE orgs/example-org/members/example-user'
 }
 
 @test "a missing oc login still prints GitHub" {

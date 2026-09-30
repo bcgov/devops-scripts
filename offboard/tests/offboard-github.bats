@@ -91,6 +91,13 @@ JSON
   [ "$(echo "$output" | jq -r '.repos_checked')" = 1 ]
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator" and .detail == "write (direct)")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer" and (.detail | test("environment prod")))'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "org-membership" and .cmd == "")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "team" and .cmd == "")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator") | .cmd | test("gh api -X DELETE repos/example-org/repo-one/collaborators/example-user")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("github-drop-env-reviewer.sh")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer") | .cmd | test("repo admin") | not'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "codeowners" and .detail == ".github/codeowners" and .cmd == "")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "codeowners-search" and .target == "example-org/repo-three" and .detail == ".github/CODEOWNERS")'
   [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("team-a|repo-four|example-user-two"))] | length')" = 0 ]
 }
 
@@ -101,9 +108,20 @@ JSON
   [[ "$output" == *"== example-user"* ]]
   [[ "$output" == *"Repository access"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
+  [[ "$output" == *"gh api -X DELETE repos/example-org/repo-one/collaborators/example-user"* ]]
+  [[ "$output" != *"gh api -X DELETE orgs/"* ]]
+  [[ "$output" != *"# org owner"* ]]
+  [[ "$output" != *"repo admin:"* ]]
   [[ "$output" == *"CODEOWNERS (code search)"* ]]
+  [[ "$output" == *"example-org/repo-one: .github/codeowners"* ]]
+  [[ "$output" == *"example-org/repo-three: .github/CODEOWNERS"* ]]
+  [[ "$output" != *"@example-admin"* ]]
+  [[ "$output" != *"# edit"* ]]
   [[ "$output" == *"Environment required reviewers"* ]]
+  [[ "$output" == *"github-drop-env-reviewer.sh"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]
+  echo "$output" | grep -qx 'gh api -X DELETE repos/example-org/repo-one/collaborators/example-user'
+  [ -z "$(echo "$output" | grep -E '^ +gh api' || true)" ]
 }
 
 @test "--repo and --repo-file replace the default repo set" {
@@ -123,6 +141,18 @@ JSON
   grep -q 'orgs/other-org/members' "$STUB_LOG"
   run grep -c 'orgs/example-org/members' "$STUB_LOG"
   [ "$output" = 0 ]
+}
+
+@test "--org-owner prints org and team DELETE commands" {
+  seed_findings
+  run --separate-stderr "$SCRIPT" --json --org-owner example-user
+  [ "$status" -eq 1 ]
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "org-membership") | .cmd | test("# org owner")'
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "team") | .cmd | test("teams/.*/memberships/")'
+  run --separate-stderr "$SCRIPT" --org-owner example-user
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qx 'gh api -X DELETE orgs/example-org/members/example-user'
+  echo "$output" | grep -qx '# org owner'
 }
 
 @test "only read-only GitHub calls are made" {
@@ -174,4 +204,19 @@ JSON
   [ "$status" -eq 3 ]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
   [[ "$output" == *"search failed (HTTP 500)"* ]]
+}
+
+@test "github-drop-env-reviewer puts remaining reviewers" {
+  cat > "$FIXTURES/env-one" <<'JSON'
+{"protection_rules":[
+  {"type":"wait_timer","wait_timer":5},
+  {"type":"required_reviewers","prevent_self_review":true,"reviewers":[
+    {"type":"User","reviewer":{"id":1,"login":"example-user"}},
+    {"type":"User","reviewer":{"id":2,"login":"keep-me"}}
+  ]}
+]}
+JSON
+  run "${BATS_TEST_DIRNAME}/../github-drop-env-reviewer.sh" example-org/repo-one prod example-user
+  [ "$status" -eq 0 ]
+  grep -q -- '-X PUT repos/example-org/repo-one/environments/prod' "$STUB_LOG"
 }

@@ -17,7 +17,7 @@
   rmcampos
 ```
 
-Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped.
+Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped. Pass `--org-owner` to include GitHub org and team DELETE commands.
 
 ## `offboard-github.sh`
 
@@ -38,11 +38,12 @@ GitHub access and ownership, using your own `gh` login.
 | Option | Meaning |
 | --- | --- |
 | `--org ORG` | Organization to check (repeatable). Default: `OFFBOARD_ORGS` (space- or comma-separated), else `bcgov bcgov-c bcgov-nr`. |
+| `--org-owner` | Include org and team DELETE commands (needs an org owner or team admin). Default: omit those commands. Membership is still listed. |
 | `--repo OWNER/NAME` | Repository for the per-repo checks (repeatable). |
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
 | `--json` | JSON output instead of text. |
 
-A login GitHub does not have is printed under that name and again under `Skipped, no GitHub account`. It is not sent to GitHub. The other logins still run. Exit codes: `0` nothing found, `1` access found, `2` usage or dependency error, `3` a GitHub API call failed.
+Each finding may include a cleanup command in JSON. In text output, notes that are only `#` lines stay under the finding. Commands that can be run (`gh`, `oc`, the environment helper) are printed again at column 0 after that person, so they paste into a shell and into bash history. The audit does not run them. Org and team DELETE commands are omitted unless `--org-owner` is set. Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. GitHub has no per-reviewer delete; the helper PUTs the remaining required-reviewer list.
 
 Login, organization, team, and CODEOWNERS comparisons are case-insensitive.
 
@@ -53,8 +54,8 @@ The repository list, collaborator lists, and CODEOWNERS files are fetched once a
 | Organization membership | `GET /orgs/{org}/members`, then a local match |
 | Teams | One GraphQL call per organization for every live login, then a local match |
 | Repository access | Collaborator permission on each target repository, marked direct or through a team or organization role |
-| CODEOWNERS | `@user` entries in the target repositories' CODEOWNERS file (`.github/`, root or `docs/`), comments ignored |
-| CODEOWNERS (code search) | CODEOWNERS files across the organizations that mention the login, including repositories you do not admin |
+| CODEOWNERS | CODEOWNERS files in the target repositories that mention `@user`. Listed as `OWNER/REPO: path`. The matching line is not printed. |
+| CODEOWNERS (code search) | The same list for CODEOWNERS files across the organizations, including repositories you do not admin. A file already listed above is not repeated. |
 | Environment required reviewers | People listed on a repository environment protection rule. A team on that rule is not listed here. |
 
 The target repositories are those given with `--repo` or `--repo-file`. Without either, they are the repositories in the configured organizations where you have admin (`gh api user/repos` with `permissions.admin`).
@@ -79,7 +80,7 @@ oc login ...
 | `--name STRING` | Name to search for (repeatable). A User subject matches when it contains the name. |
 | `--json` | JSON output instead of text. |
 
-Matching ignores case. No suffix is added. Each name is its own section, and the detail line shows the subject string that matched. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+Matching ignores case. No suffix is added. Each name is its own section, and the detail line is `binding -> role`. The `oc` command is printed at column 0 after that name; the audit does not run it. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
 
 Requires `oc` logged in, and `jq`.
 

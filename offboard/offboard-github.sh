@@ -13,6 +13,9 @@ using your own gh login. OpenShift is a separate script.
 Options:
   --org ORG         Organization to check (repeatable). Default: $OFFBOARD_ORGS,
                     else "bcgov bcgov-c bcgov-nr".
+  --org-owner       Include org and team DELETE commands (needs an org owner
+                    or team admin). Default: omit those commands. Membership
+                    is still listed.
   --repo OWNER/NAME Repository for the per-repo checks (repeatable).
   --repo-file FILE  File with one OWNER/NAME per line (# comments allowed).
                     Default repo set: repos in the orgs where you have admin.
@@ -20,6 +23,9 @@ Options:
   -h, --help        Show this help.
 
 A login GitHub does not have is listed and skipped. It is not queried.
+Each finding may include a cleanup command. This script does not run those commands.
+Org and team DELETE commands are omitted unless --org-owner is set.
+Direct collaborator and environment-reviewer commands need repository admin.
 Exit codes: 0 nothing found, 1 access found, 2 usage or dependency error,
             3 an API call failed.
 EOF
@@ -33,11 +39,13 @@ ORGS=()
 REPOS=()
 REPO_FILE=""
 JSON=false
+ORG_OWNER=false
 USERS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --org) [[ $# -ge 2 ]] || die "--org needs a value"; ORGS+=("$2"); shift 2 ;;
+    --org-owner) ORG_OWNER=true; shift ;;
     --repo) [[ $# -ge 2 ]] || die "--repo needs a value"; REPOS+=("$2"); shift 2 ;;
     --repo-file) [[ $# -ge 2 ]] || die "--repo-file needs a value"; REPO_FILE="$2"; shift 2 ;;
     --json) JSON=true; shift ;;
@@ -86,7 +94,10 @@ ERRF="${TMPD}/err"
 USERS_FILE="${TMPD}/users"
 printf '%s\n' "${USERS[@]}" | tr '[:upper:]' '[:lower:]' > "$USERS_FILE"
 
-finding() { jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" '{user:$u, check:$c, target:$t, detail:$d}' >> "$FINDINGS"; }
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_DROP="${DIR}/github-drop-env-reviewer.sh"
+
+finding() { jq -nc --arg u "$1" --arg c "$2" --arg t "$3" --arg d "$4" --arg cmd "${5:-}" '{user:$u, check:$c, target:$t, detail:$d, cmd:$cmd}' >> "$FINDINGS"; }
 note() { jq -nc --arg u "$1" --arg n "$2" '{user:$u, note:$n}' >> "$NOTES"; }
 
 call() {
@@ -202,7 +213,11 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     fi
     for u in "${LIVE[@]}"; do
       if grep -qxF "$(lower "$u")" "$TMPD/members"; then
-        finding "$u" org-membership "$o" "member"
+        cmd=""
+        if [[ "$ORG_OWNER" == true ]]; then
+          cmd=$'# org owner\ngh api -X DELETE orgs/'"${o}"'/members/'"${u}"
+        fi
+        finding "$u" org-membership "$o" "member" "$cmd"
       fi
     done
 
@@ -226,13 +241,18 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       [[ -n "$idx" && -n "$slug" ]] || continue
       u="${LIVE[$idx]}"
       slug="$(lower "$slug")"
-      finding "$u" team "${o}/${slug}" "member"
+      cmd=""
+      if [[ "$ORG_OWNER" == true ]]; then
+        cmd=$'# org owner or team admin\ngh api -X DELETE orgs/'"${o}"'/teams/'"${slug}"'/memberships/'"${u}"
+      fi
+      finding "$u" team "${o}/${slug}" "member" "$cmd"
     done < <(printf '%s' "$API_OUT" | jq -r --argjson users "$live_json" '
       (.data.organization // {}) | to_entries[]
       | (.key | ltrimstr("u")) as $i
       | .value.nodes[]? | [$i, .slug] | @tsv')
   done
 
+  declare -A SEEN_CO=()
   for u in "${USERS[@]}"; do
     lu="$(lower "$u")"
     for r in "${REPOS[@]}"; do
@@ -241,18 +261,22 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
         role="$(awk -F'\t' -v u="$lu" 'tolower($1) == u { print $2; exit }' "$d/all")"
         if [[ -n "$role" ]]; then
           if grep -qixF "$u" "$d/direct"; then
-            finding "$u" repo-collaborator "$r" "${role} (direct)"
+            finding "$u" repo-collaborator "$r" "${role} (direct)" "gh api -X DELETE repos/${r}/collaborators/${u}"
           else
-            finding "$u" repo-collaborator "$r" "${role} (through a team or organization role)"
+            finding "$u" repo-collaborator "$r" "${role} (through a team or organization role)" "# skip: access is via team or org"
           fi
         fi
       fi
-      while IFS=$'\t' read -r path lineno text; do
-        finding "$u" codeowners "$r" "${path}:${lineno}: ${text}"
+      while IFS=$'\t' read -r path _; do
+        [[ -n "$path" ]] || continue
+        key="$(lower "$u") $(lower "$r") $(lower "$path")"
+        [[ -n "${SEEN_CO[$key]:-}" ]] && continue
+        SEEN_CO[$key]=1
+        finding "$u" codeowners "$r" "$path" ""
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
       while IFS=$'\t' read -r env type who; do
         [[ "$type" == "User" && "$(lower "$who")" == "$lu" ]] || continue
-        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer"
+        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "${ENV_DROP} ${r} ${env} ${u}"
       done < "$d/environments"
     done
   done
@@ -271,7 +295,10 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       -H 'Accept: application/vnd.github.text-match+json' || { search_stop; break; }
     while IFS=$'\t' read -r repo path; do
       [[ -n "$repo" ]] || continue
-      finding "$u" codeowners-search "$repo" "$path"
+      key="$(lower "$u") $(lower "$repo") $(lower "$path")"
+      [[ -n "${SEEN_CO[$key]:-}" ]] && continue
+      SEEN_CO[$key]=1
+      finding "$u" codeowners-search "$repo" "$path" ""
     done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
       '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
   done
@@ -306,11 +333,29 @@ else
       continue
     fi
     for c in org-membership team repo-collaborator codeowners codeowners-search environment-reviewer; do
-      lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)"' "$FINDINGS")"
+      lines="$(jq -r --arg u "$u" --arg c "$c" '
+        def note:
+          (.cmd // "") as $c
+          | ($c | split("\n") | map(select(length > 0)) | (length == 0 or all(test("^#"))));
+        select(.user == $u and .check == $c)
+        | "   - \(.target): \(.detail)",
+          (if (.cmd // "") != "" and note then (.cmd | split("\n")[] | select(length > 0) | "    \(.)") else empty end)
+      ' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
       echo "$lines"
     done
+    paste="$(jq -r --arg u "$u" '
+      def note:
+        (.cmd // "") as $c
+        | ($c | split("\n") | map(select(length > 0)) | (length == 0 or all(test("^#"))));
+      select(.user == $u and (.cmd // "") != "" and (note | not))
+      | .cmd | split("\n")[] | select(length > 0)
+    ' "$FINDINGS")"
+    if [[ -n "$paste" ]]; then
+      echo
+      echo "$paste"
+    fi
   done
   if [[ -s "$NOTES" ]]; then
     echo
