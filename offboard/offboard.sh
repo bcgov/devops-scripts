@@ -9,8 +9,7 @@ OC_SCRIPT="${DIR}/offboard-openshift.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  offboard.sh
-  offboard.sh PERSON [PERSON...]
+  offboard.sh [--org-owner] PERSON [PERSON...]
 
 A person is a GitHub login, or several names joined with = :
   gpascucci=greg.pascucci
@@ -18,6 +17,9 @@ A person is a GitHub login, or several names joined with = :
 Each name is searched for as written. OpenShift matches when the User
 subject contains the name. No suffix is added. Names that are valid GitHub
 logins are also sent to the GitHub audit. Matching ignores case.
+
+--org-owner includes GitHub org and team DELETE commands (needs an org
+owner or team admin). Default: omit those commands. Membership is still listed.
 
 With no arguments in a terminal, asks for the people. If oc is not logged
 in, the GitHub report is still printed and OpenShift is skipped.
@@ -29,8 +31,10 @@ lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 is_login() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]]; }
 
 PERSONS=()
+ORG_OWNER=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --org-owner) ORG_OWNER=true; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; PERSONS+=("$@"); break ;;
     -*) usage >&2; die "unknown option: $1" ;;
@@ -83,7 +87,10 @@ echo '{"sections":[],"notes":[]}' > "$OC_OUT"
 gh_rc=0
 if [[ ${#LOGINS[@]} -gt 0 ]]; then
   set +e
-  "$GH_SCRIPT" --json -- "${LOGINS[@]}" > "$GH_OUT"
+  gh_cmd=("$GH_SCRIPT" --json)
+  [[ "$ORG_OWNER" == true ]] && gh_cmd+=(--org-owner)
+  gh_cmd+=(-- "${LOGINS[@]}")
+  "${gh_cmd[@]}" > "$GH_OUT"
   gh_rc=$?
   set -e
   jq -e . "$GH_OUT" >/dev/null 2>&1 || echo '{"users":[],"skipped":[],"notes":[]}' > "$GH_OUT"

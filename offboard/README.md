@@ -17,7 +17,7 @@
   rmcampos
 ```
 
-Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped.
+Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped. Pass `--org-owner` to include GitHub org and team DELETE commands.
 
 ## `offboard-github.sh`
 
@@ -38,11 +38,12 @@ GitHub access and ownership, using your own `gh` login.
 | Option | Meaning |
 | --- | --- |
 | `--org ORG` | Organization to check (repeatable). Default: `OFFBOARD_ORGS` (space- or comma-separated), else `bcgov bcgov-c bcgov-nr`. |
+| `--org-owner` | Include org and team DELETE commands (needs an org owner or team admin). Default: omit those commands. Membership is still listed. |
 | `--repo OWNER/NAME` | Repository for the per-repo checks (repeatable). |
 | `--repo-file FILE` | File with one `OWNER/NAME` per line. |
 | `--json` | JSON output instead of text. |
 
-Each finding includes a cleanup command in JSON. In text output, notes that are only `#` lines stay under the finding. Commands that can be run (`gh`, `oc`, the environment helper) are printed again at column 0 after that person, so they paste into a shell and into bash history. The audit does not run them. Org and team deletes need an org owner (or team admin). Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. GitHub has no per-reviewer delete; the helper PUTs the remaining required-reviewer list.
+Each finding may include a cleanup command in JSON. In text output, notes that are only `#` lines stay under the finding. Commands that can be run (`gh`, `oc`, the environment helper) are printed again at column 0 after that person, so they paste into a shell and into bash history. The audit does not run them. Org and team DELETE commands are omitted unless `--org-owner` is set. Direct collaborator deletes and `github-drop-env-reviewer.sh` need repository admin. GitHub has no per-reviewer delete; the helper PUTs the remaining required-reviewer list.
 
 Login, organization, team, and CODEOWNERS comparisons are case-insensitive.
 

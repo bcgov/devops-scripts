@@ -13,6 +13,9 @@ using your own gh login. OpenShift is a separate script.
 Options:
   --org ORG         Organization to check (repeatable). Default: $OFFBOARD_ORGS,
                     else "bcgov bcgov-c bcgov-nr".
+  --org-owner       Include org and team DELETE commands (needs an org owner
+                    or team admin). Default: omit those commands. Membership
+                    is still listed.
   --repo OWNER/NAME Repository for the per-repo checks (repeatable).
   --repo-file FILE  File with one OWNER/NAME per line (# comments allowed).
                     Default repo set: repos in the orgs where you have admin.
@@ -20,9 +23,9 @@ Options:
   -h, --help        Show this help.
 
 A login GitHub does not have is listed and skipped. It is not queried.
-Each finding includes a cleanup command. This script does not run those commands.
-Org and team deletes need an org owner (or team admin). Direct collaborator and
-environment-reviewer commands need repository admin.
+Each finding may include a cleanup command. This script does not run those commands.
+Org and team DELETE commands are omitted unless --org-owner is set.
+Direct collaborator and environment-reviewer commands need repository admin.
 Exit codes: 0 nothing found, 1 access found, 2 usage or dependency error,
             3 an API call failed.
 EOF
@@ -36,11 +39,13 @@ ORGS=()
 REPOS=()
 REPO_FILE=""
 JSON=false
+ORG_OWNER=false
 USERS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --org) [[ $# -ge 2 ]] || die "--org needs a value"; ORGS+=("$2"); shift 2 ;;
+    --org-owner) ORG_OWNER=true; shift ;;
     --repo) [[ $# -ge 2 ]] || die "--repo needs a value"; REPOS+=("$2"); shift 2 ;;
     --repo-file) [[ $# -ge 2 ]] || die "--repo-file needs a value"; REPO_FILE="$2"; shift 2 ;;
     --json) JSON=true; shift ;;
@@ -208,7 +213,11 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     fi
     for u in "${LIVE[@]}"; do
       if grep -qxF "$(lower "$u")" "$TMPD/members"; then
-        finding "$u" org-membership "$o" "member" $'# org owner\ngh api -X DELETE orgs/'"${o}"'/members/'"${u}"
+        cmd=""
+        if [[ "$ORG_OWNER" == true ]]; then
+          cmd=$'# org owner\ngh api -X DELETE orgs/'"${o}"'/members/'"${u}"
+        fi
+        finding "$u" org-membership "$o" "member" "$cmd"
       fi
     done
 
@@ -232,7 +241,11 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       [[ -n "$idx" && -n "$slug" ]] || continue
       u="${LIVE[$idx]}"
       slug="$(lower "$slug")"
-      finding "$u" team "${o}/${slug}" "member" $'# org owner or team admin\ngh api -X DELETE orgs/'"${o}"'/teams/'"${slug}"'/memberships/'"${u}"
+      cmd=""
+      if [[ "$ORG_OWNER" == true ]]; then
+        cmd=$'# org owner or team admin\ngh api -X DELETE orgs/'"${o}"'/teams/'"${slug}"'/memberships/'"${u}"
+      fi
+      finding "$u" team "${o}/${slug}" "member" "$cmd"
     done < <(printf '%s' "$API_OUT" | jq -r --argjson users "$live_json" '
       (.data.organization // {}) | to_entries[]
       | (.key | ltrimstr("u")) as $i

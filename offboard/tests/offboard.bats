@@ -50,6 +50,16 @@ seed_github() {
   echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin first.last@gov.bc.ca -n ns-a'
   [ -z "$(echo "$output" | grep -E '^ +(gh api|oc adm)' || true)" ]
   [[ "$output" != *"(subject "* ]]
+  [[ "$output" != *"gh api -X DELETE orgs/"* ]]
+}
+
+@test "--org-owner includes org DELETE commands" {
+  seed_github
+  printf 'ns-a\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[]}' > "$FIXTURES/rb-ns-a"
+  run "$SCRIPT" --org-owner example-user
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qx 'gh api -X DELETE orgs/example-org/members/example-user'
 }
 
 @test "a missing oc login still prints GitHub" {
