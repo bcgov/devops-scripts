@@ -82,6 +82,19 @@ JSON
   [[ "$output" != *"OpenShift"* ]]
 }
 
+@test "through-team repo access has no skip command" {
+  printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
+  printf 'example-user\twrite\n' > "$FIXTURES/collab-all-repo-one"
+  : > "$FIXTURES/collab-direct-repo-one"
+  run --separate-stderr "$SCRIPT" --json example-user
+  [ "$status" -eq 1 ]
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator" and (.detail | test("through a team")) and .cmd == "")'
+  run --separate-stderr "$SCRIPT" example-user
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"through a team or organization role"* ]]
+  [[ "$output" != *"# skip:"* ]]
+}
+
 @test "findings in every GitHub check exit 1 (json)" {
   seed_findings
   run --separate-stderr "$SCRIPT" --json example-user

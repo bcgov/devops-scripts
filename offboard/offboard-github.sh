@@ -263,7 +263,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
           if grep -qixF "$u" "$d/direct"; then
             finding "$u" repo-collaborator "$r" "${role} (direct)" "gh api -X DELETE repos/${r}/collaborators/${u}"
           else
-            finding "$u" repo-collaborator "$r" "${role} (through a team or organization role)" "# skip: access is via team or org"
+            finding "$u" repo-collaborator "$r" "${role} (through a team or organization role)" ""
           fi
         fi
       fi
