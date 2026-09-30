@@ -181,6 +181,15 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
     fi
     call graphql -f query="$CO_QUERY" -f o="${r%%/*}" -f n="${r#*/}" || api_error "graphql CODEOWNERS ${r}"
     printf '%s' "$API_OUT" | jq -r "$CO_JQ" > "$d/codeowners"
+    if call --paginate "repos/${r}/environments?per_page=100" \
+      --jq '.environments[]? | .name as $e | .protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]? | [$e, .type, (.reviewer.login // .reviewer.slug)] | @tsv'; then
+      printf '%s\n' "$API_OUT" > "$d/environments"
+    elif [[ "$API_STATUS" =~ ^(403|404)$ ]]; then
+      : > "$d/environments"
+      note "" "${r}: environments not checked (repository not found or not readable)"
+    else
+      api_error "repos/${r}/environments"
+    fi
   done
 
   for o in "${ORGS[@]}"; do
@@ -241,6 +250,10 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       while IFS=$'\t' read -r path lineno text; do
         finding "$u" codeowners "$r" "${path}:${lineno}: ${text}"
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
+      while IFS=$'\t' read -r env type who; do
+        [[ "$type" == "User" && "$(lower "$who")" == "$lu" ]] || continue
+        finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer"
+      done < "$d/environments"
     done
   done
 
@@ -279,6 +292,7 @@ else
   declare -A TITLE=(
     [org-membership]="Organization membership" [team]="Teams" [repo-collaborator]="Repository access"
     [codeowners]="CODEOWNERS" [codeowners-search]="CODEOWNERS (code search)"
+    [environment-reviewer]="Environment required reviewers"
   )
   echo "Organizations: ${ORGS[*]}; repositories checked: ${#REPOS[@]}"
   for u in "${USERS[@]}"; do
@@ -291,7 +305,7 @@ else
       [[ -n "${SKIPPED_SET[$u]:-}" ]] || echo "   nothing found"
       continue
     fi
-    for c in org-membership team repo-collaborator codeowners codeowners-search; do
+    for c in org-membership team repo-collaborator codeowners codeowners-search environment-reviewer; do
       lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)"' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"

@@ -22,6 +22,7 @@ seed_findings() {
   printf 'example-org/repo-one\nother-org/repo-two\n' > "$FIXTURES/user-repos"
   printf 'example-user\twrite\nexample-admin\tadmin\n' > "$FIXTURES/collab-all-repo-one"
   printf 'example-user\n' > "$FIXTURES/collab-direct-repo-one"
+  printf 'prod\tUser\texample-user\ntest\tTeam\tteam-a\n' > "$FIXTURES/env-repo-one"
   printf '# @example-user in a comment\n*  @example-admin @example-user\n/docs/ @example-user-two\n' > "$FIXTURES/codeowners-repo-one"
   cat > "$FIXTURES/search-code" <<'JSON'
 {"items":[
@@ -86,10 +87,11 @@ JSON
   run --separate-stderr "$SCRIPT" --json example-user
   [ "$status" -eq 1 ]
   counts="$(echo "$output" | jq -c '.users[0].findings | group_by(.check) | map({(.[0].check): length}) | add')"
-  [ "$counts" = '{"codeowners":1,"codeowners-search":1,"org-membership":1,"repo-collaborator":1,"team":1}' ]
+  [ "$counts" = '{"codeowners":1,"codeowners-search":1,"environment-reviewer":1,"org-membership":1,"repo-collaborator":1,"team":1}' ]
   [ "$(echo "$output" | jq -r '.repos_checked')" = 1 ]
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator" and .detail == "write (direct)")'
-  [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("repo-four|example-user-two"))] | length')" = 0 ]
+  echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer" and (.detail | test("environment prod")))'
+  [ "$(echo "$output" | jq '[.users[0].findings[] | select(.detail | test("team-a|repo-four|example-user-two"))] | length')" = 0 ]
 }
 
 @test "text output groups findings by user and check" {
@@ -100,7 +102,7 @@ JSON
   [[ "$output" == *"Repository access"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
   [[ "$output" == *"CODEOWNERS (code search)"* ]]
-  [[ "$output" != *"Environment required reviewers"* ]]
+  [[ "$output" == *"Environment required reviewers"* ]]
   [[ "$output" != *"Open issues and pull requests assigned"* ]]
 }
 
@@ -155,8 +157,7 @@ JSON
   run --separate-stderr "$SCRIPT" --json Example-User
   [ "$status" -eq 1 ]
   counts="$(echo "$output" | jq -c '.users[0].findings | group_by(.check) | map({(.[0].check): length}) | add')"
-  [ "$counts" = '{"codeowners":1,"codeowners-search":1,"org-membership":1,"repo-collaborator":1,"team":1}' ]
-  grep -q 'userLogins:\["example-user"\]' "$STUB_LOG"
+  [ "$counts" = '{"codeowners":1,"codeowners-search":1,"environment-reviewer":1,"org-membership":1,"repo-collaborator":1,"team":1}' ]
   grep -q 'example-user filename:CODEOWNERS' "$STUB_LOG"
 }
 

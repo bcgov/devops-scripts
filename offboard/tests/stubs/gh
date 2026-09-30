@@ -56,6 +56,7 @@ case "$args" in
     fi ;;
   *collaborators\?affiliation=all*) repo="${args#*repos/*/}"; emit "collab-all-${repo%%/*}" 404 ;;
   *collaborators\?affiliation=direct*) repo="${args#*repos/*/}"; emit "collab-direct-${repo%%/*}" ;;
+  *environments*) repo="${args#*repos/*/}"; emit "env-${repo%%/*}" ;;
   *search/code*) [[ -f "${FIXTURES}/search-code" ]] && emit search-code; echo '{"items":[]}' ;;
   rate_limit*) date +%s ;;
   *) echo "stub gh: unexpected api call: $args" >&2; exit 98 ;;

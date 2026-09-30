@@ -115,6 +115,7 @@ gh_titles='
     elif . == "repo-collaborator" then "Repository access"
     elif . == "codeowners" then "CODEOWNERS"
     elif . == "codeowners-search" then "CODEOWNERS (code search)"
+    elif . == "environment-reviewer" then "Environment required reviewers"
     else . end;
 '
 
