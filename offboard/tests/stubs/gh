@@ -14,12 +14,39 @@ fi
 case "$args" in
   users/*) [[ "$args" == users/missing-user* ]] && not_found; echo '{}' ;;
   *user/repos*) emit user-repos ;;
-  *orgs/*/members/*)
+  *orgs/*/members\?per_page*)
     org="${args#*orgs/}"; org="${org%%/*}"
-    grep -qxF "$org" "${FIXTURES}/member-orgs" 2>/dev/null || not_found ;;
+    if grep -qxF "$org" "${FIXTURES}/member-orgs" 2>/dev/null; then echo example-user; fi
+    exit 0 ;;
   graphql*teams*)
     org="$(printf '%s\n' "$@" | sed -n 's/^o=//p')"
-    emit "teams-${org}" ;;
+    query="$(printf '%s\n' "$@" | sed -n 's/^query=//p')"
+    slugs='[]'
+    if [[ -f "${FIXTURES}/teams-${org}" ]]; then
+      slugs="$(jq -Rsc 'split("\n") | map(select(length > 0))' "${FIXTURES}/teams-${org}")"
+    fi
+    if [[ -f "${FIXTURES}/team-logins-${org}" ]]; then
+      members="$(jq -Rsc 'split("\n") | map(select(length > 0))' "${FIXTURES}/team-logins-${org}")"
+    else
+      members='["example-user"]'
+    fi
+    entries=()
+    while [[ "$query" =~ (u[0-9]+):teams\(first:100,userLogins:\[\"([A-Za-z0-9-]+)\"\]\) ]]; do
+      alias="${BASH_REMATCH[1]}"
+      login="${BASH_REMATCH[2]}"
+      nodes='[]'
+      if printf '%s\n' "$members" | jq -e --arg l "$login" 'index($l) != null' >/dev/null; then
+        nodes="$(printf '%s\n' "$slugs" | jq 'map({slug:.})')"
+      fi
+      entries+=("$(jq -nc --arg a "$alias" --argjson n "$nodes" '{key:$a,value:{pageInfo:{hasNextPage:false},nodes:$n}}')")
+      query="${query#*"${BASH_REMATCH[0]}"}"
+    done
+    if [[ ${#entries[@]} -eq 0 ]]; then
+      echo '{"data":{"organization":{}}}'
+    else
+      printf '%s\n' "${entries[@]}" | jq -sc '{data:{organization:from_entries}}'
+    fi
+    exit 0 ;;
   graphql*CODEOWNERS*)
     repo="$(printf '%s\n' "$@" | sed -n 's/^n=//p')"
     if [[ -f "${FIXTURES}/codeowners-${repo}" ]]; then
@@ -31,8 +58,6 @@ case "$args" in
   *collaborators\?affiliation=direct*) repo="${args#*repos/*/}"; emit "collab-direct-${repo%%/*}" ;;
   *environments*) repo="${args#*repos/*/}"; emit "env-${repo%%/*}" ;;
   *search/code*) [[ -f "${FIXTURES}/search-code" ]] && emit search-code; echo '{"items":[]}' ;;
-  *search/issues*review-requested*) emit search-review ;;
-  *search/issues*) emit search-assigned ;;
   rate_limit*) date +%s ;;
   *) echo "stub gh: unexpected api call: $args" >&2; exit 98 ;;
 esac
