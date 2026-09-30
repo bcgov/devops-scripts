@@ -114,6 +114,7 @@ gh_titles='
     elif . == "team" then "Teams"
     elif . == "repo-collaborator" then "Repository access"
     elif . == "codeowners" then "CODEOWNERS"
+    elif . == "codeowners-search" then "CODEOWNERS (code search)"
     else . end;
 '
 

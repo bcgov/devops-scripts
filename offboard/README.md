@@ -46,7 +46,7 @@ A login GitHub does not have is printed under that name and again under `Skipped
 
 Login, organization, team, and CODEOWNERS comparisons are case-insensitive.
 
-The repository list, collaborator lists, and CODEOWNERS files are fetched once and matched against every login. Organization members are one list per organization. Teams are one GraphQL call per organization.
+The repository list, collaborator lists, and CODEOWNERS files are fetched once and matched against every login. Organization members are one list per organization. Teams are one GraphQL call per organization. CODEOWNERS code search is one query per live login.
 
 | Check | Source |
 | --- | --- |
@@ -54,6 +54,7 @@ The repository list, collaborator lists, and CODEOWNERS files are fetched once a
 | Teams | One GraphQL call per organization for every live login, then a local match |
 | Repository access | Collaborator permission on each target repository, marked direct or through a team or organization role |
 | CODEOWNERS | `@user` entries in the target repositories' CODEOWNERS file (`.github/`, root or `docs/`), comments ignored |
+| CODEOWNERS (code search) | CODEOWNERS files across the organizations that mention the login, including repositories you do not admin |
 
 The target repositories are those given with `--repo` or `--repo-file`. Without either, they are the repositories in the configured organizations where you have admin (`gh api user/repos` with `permissions.admin`).
 
@@ -61,7 +62,7 @@ Requires `gh` (scopes `repo` and `read:org`) and `jq`.
 
 The per-repo checks make 2 to 3 API calls per repository, about 2 seconds per repository. With around 200 admin repositories a run takes several minutes, whatever the length of the login list. `--repo` or `--repo-file` narrows it. Progress goes to stderr, the report to stdout.
 
-Limits: only what your login can see; repository access needs push access; a login on more than 100 teams is noted and the rest of that login's teams are not listed.
+Limits: only what your login can see; repository access needs push access; code search is one query per live login (10 requests a minute) and only matches when `@user` is in the returned text fragment; a login on more than 100 teams is noted and the rest of that login's teams are not listed.
 
 ## `offboard-openshift.sh`
 

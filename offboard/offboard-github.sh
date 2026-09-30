@@ -105,8 +105,27 @@ call() {
 }
 api_error() { fail "gh api $1 failed (HTTP ${API_STATUS}): $(tail -n 1 "$ERRF")"; }
 
+search_call() {
+  local kind="$1" attempt reset now
+  shift
+  for attempt in 1 2 3 4 5; do
+    call "$@" && return 0
+    if [[ "$API_STATUS" =~ ^(403|429)$ ]] && grep -qi 'rate limit' "$ERRF"; then
+      call rate_limit --jq ".resources.${kind}.reset" || api_error rate_limit
+      reset="$API_OUT"
+      now="$(date +%s)"
+      progress "search rate limit reached; waiting $(( reset > now ? reset - now + 1 : 5 ))s (attempt ${attempt})"
+      sleep "$(( reset > now ? reset - now + 1 : 5 ))"
+      continue
+    fi
+    return 1
+  done
+  return 1
+}
+
 LIVE=()
 SKIPPED=()
+SEARCH_OK=true
 declare -A SKIPPED_SET=()
 for u in "${USERS[@]}"; do
   if call "users/${u}"; then
@@ -224,6 +243,25 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
     done
   done
+
+  orgs_q=""
+  for o in "${ORGS[@]}"; do orgs_q+=" org:$(lower "$o")"; done
+  search_stop() {
+    echo "offboard-github: search failed (HTTP ${API_STATUS}): $(tail -n 1 "$ERRF")" >&2
+    note "" "search failed (HTTP ${API_STATUS})"
+    SEARCH_OK=false
+  }
+  for u in "${LIVE[@]}"; do
+    [[ "$SEARCH_OK" == true ]] || break
+    lu="$(lower "$u")"
+    search_call code_search --paginate -X GET search/code -f q="${lu} filename:CODEOWNERS${orgs_q}" -f per_page=100 \
+      -H 'Accept: application/vnd.github.text-match+json' || { search_stop; break; }
+    while IFS=$'\t' read -r repo path; do
+      [[ -n "$repo" ]] || continue
+      finding "$u" codeowners-search "$repo" "$path"
+    done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
+      '.items[]? | select(any(.text_matches[]?.fragment; test($re; "i"))) | [.repository.full_name, .path] | @tsv' | sort -u)
+  done
 fi
 
 count="$(wc -l < "$FINDINGS" | tr -d ' ')"
@@ -240,7 +278,7 @@ if [[ "$JSON" == "true" ]]; then
 else
   declare -A TITLE=(
     [org-membership]="Organization membership" [team]="Teams" [repo-collaborator]="Repository access"
-    [codeowners]="CODEOWNERS"
+    [codeowners]="CODEOWNERS" [codeowners-search]="CODEOWNERS (code search)"
   )
   echo "Organizations: ${ORGS[*]}; repositories checked: ${#REPOS[@]}"
   for u in "${USERS[@]}"; do
@@ -253,7 +291,7 @@ else
       [[ -n "${SKIPPED_SET[$u]:-}" ]] || echo "   nothing found"
       continue
     fi
-    for c in org-membership team repo-collaborator codeowners; do
+    for c in org-membership team repo-collaborator codeowners codeowners-search; do
       lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)"' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
@@ -272,5 +310,6 @@ else
   fi
 fi
 
+if [[ "$SEARCH_OK" != true ]]; then exit 3; fi
 [[ "$count" -eq 0 ]] || exit 1
 exit 0
