@@ -26,7 +26,6 @@ seed_github() {
   printf '* @example-user\n' > "$FIXTURES/codeowners-repo-one"
   echo '{"items":[]}' > "$FIXTURES/search-code"
   printf 'https://github.com/example-org/repo-one/issues/1\tissue\tAn issue\texample-user\n' > "$FIXTURES/search-assigned"
-  printf 'https://github.com/example-org/repo-one/pull/3\tNeeds review\n' > "$FIXTURES/search-review"
 }
 
 @test "no arguments off a terminal is a usage error" {

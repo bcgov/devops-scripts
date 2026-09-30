@@ -117,7 +117,6 @@ gh_titles='
     elif . == "environment-reviewer" then "Environment required reviewers"
     elif . == "codeowners-search" then "CODEOWNERS (code search)"
     elif . == "assigned" then "Open issues and pull requests assigned"
-    elif . == "review-requested" then "Pull requests waiting on their review"
     else . end;
 '
 

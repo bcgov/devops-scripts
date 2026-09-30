@@ -31,7 +31,6 @@ seed_findings() {
 ]}
 JSON
   printf 'https://github.com/example-org/repo-one/issues/1\tissue\tAn issue\texample-user\nhttps://github.com/example-org/repo-one/pull/2\tpull request\tA change\texample-user\n' > "$FIXTURES/search-assigned"
-  printf 'https://github.com/example-org/repo-one/pull/3\tNeeds review\n' > "$FIXTURES/search-review"
 }
 
 @test "no arguments is a usage error" {
@@ -89,7 +88,7 @@ JSON
   run --separate-stderr "$SCRIPT" --json example-user
   [ "$status" -eq 1 ]
   counts="$(echo "$output" | jq -c '.users[0].findings | group_by(.check) | map({(.[0].check): length}) | add')"
-  [ "$counts" = '{"assigned":2,"codeowners":1,"codeowners-search":1,"environment-reviewer":2,"org-membership":1,"repo-collaborator":1,"review-requested":1,"team":1}' ]
+  [ "$counts" = '{"assigned":2,"codeowners":1,"codeowners-search":1,"environment-reviewer":2,"org-membership":1,"repo-collaborator":1,"team":1}' ]
   [ "$(echo "$output" | jq -r '.repos_checked')" = 1 ]
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "repo-collaborator" and .detail == "write (direct)")'
   echo "$output" | jq -e '.users[0].findings[] | select(.check == "environment-reviewer" and (.detail | test("through team team-a")))'
@@ -103,7 +102,7 @@ JSON
   [[ "$output" == *"== example-user"* ]]
   [[ "$output" == *"Repository access"* ]]
   [[ "$output" == *"example-org/repo-one: write (direct)"* ]]
-  [[ "$output" == *"Pull requests waiting on their review"* ]]
+  [[ "$output" != *"Pull requests waiting on their review"* ]]
 }
 
 @test "--repo and --repo-file replace the default repo set" {
@@ -151,7 +150,7 @@ JSON
   run grep -c 'assignee:' "$STUB_LOG"
   [ "$output" = 1 ]
   run grep -c 'user-review-requested:' "$STUB_LOG"
-  [ "$output" = 2 ]
+  [ "$output" = 0 ]
   run grep -c 'userLogins:\["missing-user"\]' "$STUB_LOG"
   [ "$output" = 0 ]
 }
@@ -161,10 +160,10 @@ JSON
   run --separate-stderr "$SCRIPT" --json Example-User
   [ "$status" -eq 1 ]
   counts="$(echo "$output" | jq -c '.users[0].findings | group_by(.check) | map({(.[0].check): length}) | add')"
-  [ "$counts" = '{"assigned":2,"codeowners":1,"codeowners-search":1,"environment-reviewer":2,"org-membership":1,"repo-collaborator":1,"review-requested":1,"team":1}' ]
+  [ "$counts" = '{"assigned":2,"codeowners":1,"codeowners-search":1,"environment-reviewer":2,"org-membership":1,"repo-collaborator":1,"team":1}' ]
   grep -q 'userLogins:\["example-user"\]' "$STUB_LOG"
   grep -q 'assignee:example-user' "$STUB_LOG"
-  grep -q 'user-review-requested:example-user' "$STUB_LOG"
+  [ -z "$(grep 'user-review-requested:' "$STUB_LOG" || true)" ]
   grep -q 'example-user filename:CODEOWNERS' "$STUB_LOG"
 }
 

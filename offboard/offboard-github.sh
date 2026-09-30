@@ -316,17 +316,6 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       done
     done <<< "$API_OUT"
   done
-
-  if [[ "$SEARCH_OK" == true ]]; then
-    for u in "${LIVE[@]}"; do
-      [[ "$SEARCH_OK" == true ]] || break
-      search_call search --paginate -X GET search/issues -f q="is:open is:pr user-review-requested:$(lower "$u")${orgs_q}" -f per_page=100 \
-        --jq '.items[] | [.html_url, .title] | @tsv' || { search_stop; break; }
-      while IFS=$'\t' read -r url title; do
-        if [[ -n "$url" ]]; then finding "$u" review-requested "$url" "$title"; fi
-      done <<< "$API_OUT"
-    done
-  fi
 fi
 
 count="$(wc -l < "$FINDINGS" | tr -d ' ')"
@@ -345,7 +334,6 @@ else
     [org-membership]="Organization membership" [team]="Teams" [repo-collaborator]="Repository access"
     [codeowners]="CODEOWNERS (checked repositories)" [environment-reviewer]="Environment required reviewers"
     [codeowners-search]="CODEOWNERS (code search)" [assigned]="Open issues and pull requests assigned"
-    [review-requested]="Pull requests waiting on their review"
   )
   echo "Organizations: ${ORGS[*]}; repositories checked: ${#REPOS[@]}"
   for u in "${USERS[@]}"; do
@@ -358,7 +346,7 @@ else
       [[ -n "${SKIPPED_SET[$u]:-}" ]] || echo "   nothing found"
       continue
     fi
-    for c in org-membership team repo-collaborator codeowners environment-reviewer codeowners-search assigned review-requested; do
+    for c in org-membership team repo-collaborator codeowners environment-reviewer codeowners-search assigned; do
       lines="$(jq -r --arg u "$u" --arg c "$c" 'select(.user == $u and .check == $c) | "   - \(.target): \(.detail)"' "$FINDINGS")"
       [[ -n "$lines" ]] || continue
       echo "  ${TITLE[$c]}"
