@@ -9,7 +9,7 @@ OC_SCRIPT="${DIR}/offboard-openshift.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  offboard.sh [--org-owner] PERSON [PERSON...]
+  offboard.sh [--org=bcgov,bcgov-c] [--org-owner] PERSON [PERSON...]
 
 A person is a GitHub login, or several names joined with = :
   gpascucci=greg.pascucci
@@ -20,6 +20,8 @@ logins are also sent to the GitHub audit. Matching ignores case.
 
 --org-owner includes GitHub org and team DELETE commands (needs an org
 owner or team admin). Default: omit those commands. Membership is still listed.
+--org selects GitHub organizations (repeatable, comma-separated). Default:
+bcgov and bcgov-c.
 
 With no arguments in a terminal, asks for the people. If oc is not logged
 in, the GitHub report is still printed and OpenShift is skipped.
@@ -29,12 +31,25 @@ EOF
 die() { echo "offboard: $*" >&2; exit 2; }
 lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 is_login() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]]; }
+add_orgs() {
+  local raw="$1" tok
+  [[ -n "$raw" ]] || die "--org needs a value"
+  raw="${raw//,/ }"
+  read -r -a toks <<< "$raw"
+  [[ ${#toks[@]} -gt 0 ]] || die "--org needs a value"
+  for tok in "${toks[@]}"; do
+    ORGS+=("$tok")
+  done
+}
 
 PERSONS=()
 ORG_OWNER=false
+ORGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --org-owner) ORG_OWNER=true; shift ;;
+    --org) [[ $# -ge 2 ]] || die "--org needs a value"; add_orgs "$2"; shift 2 ;;
+    --org=*) add_orgs "${1#--org=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; PERSONS+=("$@"); break ;;
     -*) usage >&2; die "unknown option: $1" ;;
@@ -89,6 +104,7 @@ if [[ ${#LOGINS[@]} -gt 0 ]]; then
   set +e
   gh_cmd=("$GH_SCRIPT" --json)
   [[ "$ORG_OWNER" == true ]] && gh_cmd+=(--org-owner)
+  for o in "${ORGS[@]}"; do gh_cmd+=(--org "$o"); done
   gh_cmd+=(-- "${LOGINS[@]}")
   "${gh_cmd[@]}" > "$GH_OUT"
   gh_rc=$?

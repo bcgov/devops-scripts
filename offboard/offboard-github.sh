@@ -11,8 +11,9 @@ Read-only report of GitHub access and ownership for departed accounts,
 using your own gh login. OpenShift is a separate script.
 
 Options:
-  --org ORG         Organization to check (repeatable). Default: $OFFBOARD_ORGS,
-                    else "bcgov bcgov-c bcgov-nr".
+  --org ORG         Organization to check (repeatable, comma-separated).
+                    --org=bcgov,bcgov-c is valid. Default: $OFFBOARD_ORGS,
+                    else bcgov and bcgov-c.
   --org-owner       Include org and team DELETE commands (needs an org owner
                     or team admin). Default: omit those commands. Membership
                     is still listed.
@@ -34,6 +35,16 @@ die() { echo "offboard-github: $*" >&2; exit 2; }
 fail() { echo "offboard-github: $*" >&2; exit 3; }
 progress() { echo "offboard-github: $*" >&2; }
 lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+add_orgs() {
+  local raw="$1" tok
+  [[ -n "$raw" ]] || die "--org needs a value"
+  raw="${raw//,/ }"
+  read -r -a toks <<< "$raw"
+  [[ ${#toks[@]} -gt 0 ]] || die "--org needs a value"
+  for tok in "${toks[@]}"; do
+    ORGS+=("$tok")
+  done
+}
 
 ORGS=()
 REPOS=()
@@ -44,7 +55,8 @@ USERS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --org) [[ $# -ge 2 ]] || die "--org needs a value"; ORGS+=("$2"); shift 2 ;;
+    --org) [[ $# -ge 2 ]] || die "--org needs a value"; add_orgs "$2"; shift 2 ;;
+    --org=*) add_orgs "${1#--org=}"; shift ;;
     --org-owner) ORG_OWNER=true; shift ;;
     --repo) [[ $# -ge 2 ]] || die "--repo needs a value"; REPOS+=("$2"); shift 2 ;;
     --repo-file) [[ $# -ge 2 ]] || die "--repo-file needs a value"; REPO_FILE="$2"; shift 2 ;;
@@ -62,7 +74,7 @@ for u in "${USERS[@]}"; do
 done
 
 if [[ ${#ORGS[@]} -eq 0 ]]; then
-  read -r -a ORGS <<< "${OFFBOARD_ORGS:-bcgov bcgov-c bcgov-nr}"
+  read -r -a ORGS <<< "${OFFBOARD_ORGS:-bcgov bcgov-c}"
   ORGS=("${ORGS[@]//,/ }")
   read -r -a ORGS <<< "${ORGS[*]}"
 fi
