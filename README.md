@@ -25,6 +25,27 @@ Scripts a person runs from a workstation with their own login (for example an ac
 - [`github-drop-env-reviewer.sh`](offboard/github-drop-env-reviewer.sh): repo-admin helper to drop one login from an environment required-reviewers rule.
 - [`offboard-openshift.sh`](offboard/offboard-openshift.sh): read-only report of OpenShift RoleBindings whose user subject contains a given name.
 
+### GitHub Actions ([`github/`](github))
+
+- [`rerun-blocked.sh`](github/rerun-blocked.sh): find failed GitHub Actions runs whose log shows a blocked connection (default: the runner could not reach the OpenShift API, `dial tcp …:6443: i/o timeout`) and rerun their failed jobs after asking.
+
+#### Usage
+
+```sh
+# Scan every non-archived repo you can push to (last 2 days), then ask before rerunning
+github/rerun-blocked.sh
+
+# Narrow the scan
+github/rerun-blocked.sh --orgs bcgov,bcgov-c --days 3
+github/rerun-blocked.sh --repos bcgov/quickstart-openshift
+github/rerun-blocked.sh --exclude 'bcgov/old-*'
+
+# Match a different log line, and rerun without the prompt
+github/rerun-blocked.sh --pattern 'connection reset by peer' --yes
+```
+
+It always scans first and lists what it found, then asks `N blocked runs found, rerun them? [y/N]` (default No) and reruns exactly the listed runs with `gh run rerun <id> --failed`. Without a terminal (CI, cron, a pipe) it only reports unless `--yes` is set. Only the latest run per workflow and branch is checked. Runs are skipped when they are past attempt 1, still running or waiting on approval, have a job named prod/production, or deployed their commit to a prod/production environment. Needs `gh` (logged in) and `jq`.
+
 ## Checks
 
 Pull requests and pushes to `main` run `shellcheck --severity=warning` on every `*.sh` file and the `*.bats` tests.
