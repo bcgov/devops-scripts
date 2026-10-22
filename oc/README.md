@@ -56,25 +56,26 @@ curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/rights
 ```
 
 ### 5. `list_routes.sh`
-Queries all OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. Supports filtering out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, etc.) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
+Queries all OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. By default, filters out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, `*.cluster.local`) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
 
 ```bash
-# Tabular route inventory across all accessible namespaces:
+# Tabular vanity route inventory across all accessible namespaces:
 ./oc/list_routes.sh
 
-# Filter to vanity/custom domains only:
-./oc/list_routes.sh -v
+# Include all cluster wildcard routes as well:
+./oc/list_routes.sh -a
 
-# Output raw unique URLs (ideal for blackbox exporter or cert monitoring rules):
-./oc/list_routes.sh -v -u
+# Output raw unique vanity URLs (ideal for blackbox exporter or cert monitoring rules):
+./oc/list_routes.sh -u
 
 # Output structured JSON:
 ./oc/list_routes.sh -j | jq .
 ```
 
 #### Options
-- `-v`, `--vanity-only`: Filter out default cluster wildcard routes (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, `*.cluster.local`). Can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
-- `-u`, `--urls-only`: Output only raw, unique hostnames/URLs.
+- `-a`, `--all`: Include all routes, including default cluster wildcard domains.
+- `-v`, `--vanity-only`: Filter out default cluster wildcard routes (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, `*.cluster.local`). This is the default behavior. Can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
+- `-u`, `--urls-only`: Output only raw, unique URLs.
 - `-j`, `--json`: Output structured JSON array.
 - `-h`, `--help`: Display usage and options.
 
@@ -82,19 +83,26 @@ Queries all OpenShift namespaces accessible to the active `oc` session (`oc proj
 
 Tabular (`./oc/list_routes.sh`):
 ```text
-NAMESPACE     NAME           TERMINATION  HOST                                       URL
-c38e9a-dev    frontend-dev   Edge         frontend-dev.apps.silver.devops.gov.bc.ca  https://frontend-dev.apps.silver.devops.gov.bc.ca
-c38e9a-prod   frontend-prod  Edge         service.gov.bc.ca                          https://service.gov.bc.ca
-c38e9a-prod   api-prod       Reencrypt    service.gov.bc.ca                          https://service.gov.bc.ca/api
+NAMESPACE     NAME           TERMINATION  URL
+c38e9a-prod   frontend-prod  Edge         https://service.gov.bc.ca
+c38e9a-prod   api-prod       Reencrypt    https://service.gov.bc.ca/api
 ```
 
-Vanity URLs only (`./oc/list_routes.sh -v -u`):
+Include all cluster routes (`./oc/list_routes.sh -a`):
+```text
+NAMESPACE     NAME           TERMINATION  URL
+c38e9a-dev    frontend-dev   Edge         https://frontend-dev.apps.silver.devops.gov.bc.ca
+c38e9a-prod   frontend-prod  Edge         https://service.gov.bc.ca
+c38e9a-prod   api-prod       Reencrypt    https://service.gov.bc.ca/api
+```
+
+Vanity URLs only (`./oc/list_routes.sh -u`):
 ```text
 https://service.gov.bc.ca
 https://service.gov.bc.ca/api
 ```
 
-JSON (`./oc/list_routes.sh -v -j`):
+JSON (`./oc/list_routes.sh -j`):
 ```json
 [
   {

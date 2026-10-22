@@ -5,25 +5,26 @@
 #   ./list_routes.sh [OPTIONS]
 #
 # Discovers and inventories OpenShift routes across all namespaces accessible
-# to the active oc session.
+# to the active oc session. By default, filters out default cluster wildcard routes
+# to focus on custom vanity domains for TLS monitoring.
 #
 # Options:
-#   -v, --vanity-only    Filter out default cluster wildcard routes
-#                        (e.g. *.apps.*.gov.bc.ca, *.router.default.svc.cluster.local)
-#   -u, --urls-only      Output only raw, unique hostnames/URLs
+#   -a, --all            Include all routes (including default cluster wildcard routes)
+#   -v, --vanity-only    Filter out default cluster wildcard routes (default behavior)
+#   -u, --urls-only      Output only raw, unique URLs
 #   -j, --json           Output structured JSON array
 #   -h, --help           Display this help message and exit
 #
 # Examples:
 #   ./list_routes.sh
-#   ./list_routes.sh -v
-#   ./list_routes.sh -v -u
+#   ./list_routes.sh -a
+#   ./list_routes.sh -u
 #   ./list_routes.sh -j
 #
 
 set -euo pipefail
 
-vanity_only=false
+vanity_only=true
 urls_only=false
 json_output=false
 
@@ -32,25 +33,26 @@ show_help() {
 Usage: list_routes.sh [OPTIONS]
 
 Discover and inventory OpenShift routes across all accessible namespaces.
+By default, filters out default cluster wildcard routes to focus on custom vanity domains.
 
 Options:
-  -v, --vanity-only    Filter out default cluster wildcard routes
-                       (e.g. *.apps.*.gov.bc.ca, *.router.default.svc.cluster.local)
-  -u, --urls-only      Output only raw, unique hostnames/URLs
+  -a, --all            Include all routes (including default cluster wildcard routes)
+  -v, --vanity-only    Filter out default cluster wildcard routes (default behavior)
+  -u, --urls-only      Output only raw, unique URLs
   -j, --json           Output structured JSON array
   -h, --help           Display this help message and exit
 
 Examples:
-  # Display tabular route inventory across all accessible namespaces
+  # Display tabular vanity route inventory across accessible namespaces
   ./list_routes.sh
 
-  # Inventory only vanity/custom domain routes
-  ./list_routes.sh -v
+  # Include all cluster wildcard routes as well
+  ./list_routes.sh -a
 
   # Extract unique vanity URLs for certificate monitoring (e.g. Prometheus rules)
-  ./list_routes.sh -v -u > vanity-urls.txt
+  ./list_routes.sh -u > vanity-urls.txt
 
-  # Output all routes as structured JSON
+  # Output vanity routes as structured JSON
   ./list_routes.sh -j | jq .
 EOF
 }
@@ -60,6 +62,10 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       show_help
       exit 0
+      ;;
+    -a|--all)
+      vanity_only=false
+      shift
       ;;
     -v|--vanity-only)
       vanity_only=true
@@ -73,11 +79,12 @@ while [[ $# -gt 0 ]]; do
       json_output=true
       shift
       ;;
-    -[!-]* ) # grouped short flags (e.g. -vu, -uv, -vj)
+    -[!-]* ) # grouped short flags (e.g. -au, -au, -aj)
       for (( i=1; i<${#1}; i++ )); do
         opt="${1:$i:1}"
         case "$opt" in
           h) show_help; exit 0 ;;
+          a) vanity_only=false ;;
           v) vanity_only=true ;;
           u) urls_only=true ;;
           j) json_output=true ;;
@@ -115,7 +122,7 @@ if ! oc whoami >/dev/null 2>&1; then
   exit 1
 fi
 
-# Regex pattern matching default cluster wildcard domains to exclude when --vanity-only is enabled
+# Regex pattern matching default cluster wildcard domains to exclude when vanity_only is enabled
 CLUSTER_DOMAIN_PATTERN="${CLUSTER_DOMAIN_PATTERN:-(\.apps\..+\.gov\.bc\.ca|\.apps\..+\.openshiftapps\.com|\.router\.default\.svc\.cluster\.local|\.svc\.cluster\.local|\.cluster\.local)$}"
 
 # Query accessible namespaces
@@ -131,7 +138,7 @@ if [[ -z "${projects//[[:space:]]/}" ]]; then
   elif [[ "$urls_only" == true ]]; then
     exit 0
   else
-    printf '%s\t%s\t%s\t%s\t%s\n' "NAMESPACE" "NAME" "TERMINATION" "HOST" "URL" | column -t -s $'\t'
+    printf '%s\t%s\t%s\t%s\n' "NAMESPACE" "NAME" "TERMINATION" "URL" | column -t -s $'\t'
   fi
   exit 0
 fi
@@ -150,7 +157,7 @@ if [[ -z "${raw_routes//[[:space:]]/}" ]]; then
   elif [[ "$urls_only" == true ]]; then
     exit 0
   else
-    printf '%s\t%s\t%s\t%s\t%s\n' "NAMESPACE" "NAME" "TERMINATION" "HOST" "URL" | column -t -s $'\t'
+    printf '%s\t%s\t%s\t%s\n' "NAMESPACE" "NAME" "TERMINATION" "URL" | column -t -s $'\t'
   fi
   exit 0
 fi
@@ -206,8 +213,8 @@ elif [[ "$urls_only" == true ]]; then
   echo "$parsed_json" | jq -r 'map(.url) | unique[] | select(. != "")'
 else
   echo "$parsed_json" | jq -r '
-    ["NAMESPACE", "NAME", "TERMINATION", "HOST", "URL"],
-    (.[] | [.namespace, .name, .termination, .host, .url])
+    ["NAMESPACE", "NAME", "TERMINATION", "URL"],
+    (.[] | [.namespace, .name, .termination, .url])
     | @tsv
   ' | column -t -s $'\t'
 fi
