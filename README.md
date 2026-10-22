@@ -16,6 +16,7 @@ Scripts a person runs from a workstation with their own login (for example an ac
 - [`db_transfer.sh`](oc/db_transfer.sh): stream a `pg_dump` from one database deployment and restore it into another with `pg_restore`.
 - [`db_compare.sh`](oc/db_compare.sh): compare PostgreSQL table row counts between two database deployments.
 - [`rights_reporter.sh`](oc/rights_reporter.sh): report user role bindings and risk indicators across accessible namespaces.
+- [`list_routes.sh`](oc/list_routes.sh): discover routes and extract vanity URLs across accessible namespaces without cluster-admin permissions.
 - Postgres migration walkthrough: [`oc/README.md`](oc/README.md)
 
 ### Offboarding ([`offboard/`](offboard))
