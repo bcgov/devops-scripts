@@ -25,11 +25,28 @@ Scripts a person runs from a workstation with their own login (for example an ac
 - [`github-drop-env-reviewer.sh`](offboard/github-drop-env-reviewer.sh): repo-admin helper to drop one login from an environment required-reviewers rule.
 - [`offboard-openshift.sh`](offboard/offboard-openshift.sh): read-only report of OpenShift RoleBindings whose user subject contains a given name.
 
-### GitHub Actions ([`github/`](github))
+### GitHub ([`github/`](github))
 
+- [`pr-status.sh`](github/pr-status.sh): read-only report of your open PRs, or a live readiness check of one PR.
 - [`rerun-blocked.sh`](github/rerun-blocked.sh): find failed GitHub Actions runs whose log shows a blocked connection (default: the runner could not reach the OpenShift API, `dial tcp …:6443: i/o timeout`) and rerun their failed jobs after asking.
 
-#### Usage
+#### `pr-status.sh` usage
+
+```sh
+# Your open PRs (as the gh user) in every non-archived repo you can push to
+github/pr-status.sh
+github/pr-status.sh --orgs bcgov,bcgov-c
+github/pr-status.sh --repos bcgov/quickstart-openshift --exclude 'bcgov/old-*'
+
+# Is one PR ready for review? Exit 0 only when every check passes
+github/pr-status.sh https://github.com/bcgov/quickstart-openshift/pull/123
+github/pr-status.sh 123 -R bcgov/quickstart-openshift --quiet-minutes 10
+github/pr-status.sh 123 --hold-prefix 'ON HOLD:'
+```
+
+The report groups PRs authored by, assigned to, or awaiting review from you into "waiting on review or merge" and "failing or changes requested". The check prints one line each for open, checks green, 0 unresolved review threads, not behind the base, mergeable apart from review, and minutes since the last push (default 10). `--hold-prefix` also fails a PR whose description starts with that text. Neither mode reruns anything; use `rerun-blocked.sh` for runs blocked from the OpenShift API. Needs `gh` (logged in) and `jq`.
+
+#### `rerun-blocked.sh` usage
 
 ```sh
 # Scan every non-archived repo you can push to (last 2 days), then ask before rerunning
