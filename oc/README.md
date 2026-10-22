@@ -70,6 +70,14 @@ Queries all OpenShift namespaces accessible to the active `oc` session (`oc proj
 
 # Output structured JSON:
 ./oc/list_routes.sh -j | jq .
+
+# Remote execution (without cloning the repository):
+curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash
+
+# Remote execution with flags:
+curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -u
+curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -a
+curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -j | jq .
 ```
 
 #### Options
