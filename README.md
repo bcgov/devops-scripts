@@ -28,8 +28,9 @@ Scripts a person runs from a workstation with their own login (for example an ac
 ### GitHub ([`github/`](github))
 
 - [`pr-status.sh`](github/pr-status.sh): read-only report of your open PRs, or a live readiness check of one PR.
+- [`rerun-blocked.sh`](github/rerun-blocked.sh): find failed GitHub Actions runs whose log shows a blocked connection (default: the runner could not reach the OpenShift API, `dial tcp …:6443: i/o timeout`) and rerun their failed jobs after asking.
 
-#### Usage
+#### `pr-status.sh` usage
 
 ```sh
 # Your open PRs (as the gh user) in every non-archived repo you can push to
@@ -44,6 +45,23 @@ github/pr-status.sh 123 --hold-prefix 'ON HOLD:'
 ```
 
 The report groups PRs authored by, assigned to, or awaiting review from you into "waiting on review or merge" and "failing or changes requested". The check prints one line each for open, checks green, 0 unresolved review threads, not behind the base, mergeable apart from review, and minutes since the last push (default 10). `--hold-prefix` also fails a PR whose description starts with that text. Neither mode reruns anything; use `rerun-blocked.sh` for runs blocked from the OpenShift API. Needs `gh` (logged in) and `jq`.
+
+#### `rerun-blocked.sh` usage
+
+```sh
+# Scan every non-archived repo you can push to (last 2 days), then ask before rerunning
+github/rerun-blocked.sh
+
+# Narrow the scan
+github/rerun-blocked.sh --orgs bcgov,bcgov-c --days 3
+github/rerun-blocked.sh --repos bcgov/quickstart-openshift
+github/rerun-blocked.sh --exclude 'bcgov/old-*'
+
+# Match a different log line, and rerun without the prompt
+github/rerun-blocked.sh --pattern 'connection reset by peer' --yes
+```
+
+It always scans first and lists what it found, then asks `N blocked runs found, rerun them? [y/N]` (default No) and reruns exactly the listed runs with `gh run rerun <id> --failed`. Without a terminal (CI, cron, a pipe) it only reports unless `--yes` is set. Only the latest run per workflow and branch is checked. Runs are skipped when they are past attempt 1, still running or waiting on approval, have a job named prod/production, or deployed their commit to a prod/production environment. Needs `gh` (logged in) and `jq`.
 
 ## Checks
 
