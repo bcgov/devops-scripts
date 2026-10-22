@@ -55,6 +55,58 @@ curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/rights
 curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/rights_reporter.sh | bash -s -- "admin edit view" > report.txt 2>&1
 ```
 
+### 5. `list_routes.sh`
+Queries all OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. Supports filtering out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, etc.) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
+
+```bash
+# Tabular route inventory across all accessible namespaces:
+./oc/list_routes.sh
+
+# Filter to vanity/custom domains only:
+./oc/list_routes.sh -v
+
+# Output raw unique URLs (ideal for blackbox exporter or cert monitoring rules):
+./oc/list_routes.sh -v -u
+
+# Output structured JSON:
+./oc/list_routes.sh -j | jq .
+```
+
+#### Options
+- `-v`, `--vanity-only`: Filter out default cluster wildcard routes (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, `*.cluster.local`). Can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
+- `-u`, `--urls-only`: Output only raw, unique hostnames/URLs.
+- `-j`, `--json`: Output structured JSON array.
+- `-h`, `--help`: Display usage and options.
+
+#### Sample Output
+
+Tabular (`./oc/list_routes.sh`):
+```text
+NAMESPACE     NAME           TERMINATION  HOST                                       URL
+c38e9a-dev    frontend-dev   Edge         frontend-dev.apps.silver.devops.gov.bc.ca  https://frontend-dev.apps.silver.devops.gov.bc.ca
+c38e9a-prod   frontend-prod  Edge         service.gov.bc.ca                          https://service.gov.bc.ca
+c38e9a-prod   api-prod       Reencrypt    service.gov.bc.ca                          https://service.gov.bc.ca/api
+```
+
+Vanity URLs only (`./oc/list_routes.sh -v -u`):
+```text
+https://service.gov.bc.ca
+https://service.gov.bc.ca/api
+```
+
+JSON (`./oc/list_routes.sh -v -j`):
+```json
+[
+  {
+    "namespace": "c38e9a-prod",
+    "name": "frontend-prod",
+    "termination": "Edge",
+    "host": "service.gov.bc.ca",
+    "url": "https://service.gov.bc.ca"
+  }
+]
+```
+
 ## Example: Postgres Database Migration
 
 These scripts can migrate a postgres or postgis database.
