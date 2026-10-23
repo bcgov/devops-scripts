@@ -56,31 +56,35 @@ curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/rights
 ```
 
 ### 5. `list_routes.sh`
-Queries all OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. By default, filters out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.devops.bcgov`, `*.router.default.svc.cluster.local`, `*.cluster.local`) and unencrypted routes (`TERMINATION: None`) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
+Queries OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. By default, queries all distinct authenticated clusters in kubeconfig (e.g. Silver and Gold), filters out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.devops.bcgov`, `*.router.default.svc.cluster.local`, `*.cluster.local`), and filters out unencrypted routes (`TERMINATION: None`) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
 
 ```bash
-# Tabular vanity route inventory across all accessible namespaces:
+# Tabular vanity route inventory across all authenticated clusters (default):
 ./oc/list_routes.sh
+
+# Limit discovery to only the current active cluster context:
+./oc/list_routes.sh -c
 
 # Include all cluster wildcard and unencrypted HTTP routes as well:
 ./oc/list_routes.sh -a
 
-# Output raw unique vanity URLs (ideal for blackbox exporter or cert monitoring rules):
+# Output raw unique vanity URLs across all clusters (ideal for blackbox exporter or cert monitoring rules):
 ./oc/list_routes.sh -u
 
-# Output structured JSON:
+# Output structured JSON across all clusters:
 ./oc/list_routes.sh -j | jq .
 
-# Remote execution (without cloning the repository):
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash
-
-# Remote execution with flags:
+# Remote execution across all clusters (without cloning the repository):
 curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -u
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -a
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -j | jq .
+
+# Target a specific context:
+./oc/list_routes.sh --context gold-ctx
 ```
 
 #### Options
+- `-c`, `--current-cluster`: Query only the active cluster context (default queries all authenticated clusters in kubeconfig).
+- `--context <name>`: Target a specific kubeconfig context.
+- `-C`, `--all-clusters`: Query all distinct authenticated clusters in kubeconfig (default behavior). In tabular view, prepends a `CLUSTER` column.
 - `-a`, `--all`: Include all routes, including default cluster wildcard domains and unencrypted (HTTP) routes.
 - `-v`, `--vanity-only`: Filter out default cluster wildcard routes and unencrypted routes (`TERMINATION: None`). This is the default behavior. Cluster patterns can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
 - `-u`, `--urls-only`: Output only raw, unique URLs.
@@ -89,7 +93,15 @@ curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_r
 
 #### Sample Output
 
-Tabular (`./oc/list_routes.sh`):
+Tabular across all clusters (`./oc/list_routes.sh`):
+```text
+CLUSTER  NAMESPACE     NAME           TERMINATION  URL
+gold     a4b31c-prod   fom-prod-admin Edge         https://fom.nrs.gov.bc.ca/admin
+silver   c38e9a-prod   frontend-prod  Edge         https://service.gov.bc.ca
+silver   c38e9a-prod   api-prod       Reencrypt    https://service.gov.bc.ca/api
+```
+
+Single Cluster Tabular (`./oc/list_routes.sh -c`):
 ```text
 NAMESPACE     NAME           TERMINATION  URL
 c38e9a-prod   frontend-prod  Edge         https://service.gov.bc.ca
