@@ -5,28 +5,30 @@
 #   ./list_routes.sh [OPTIONS]
 #
 # Discovers and inventories OpenShift routes across accessible namespaces.
-# By default, filters out default cluster wildcard routes and unencrypted (None)
-# routes to focus on custom vanity domains for TLS monitoring.
+# By default, queries all distinct authenticated clusters in kubeconfig (e.g. Silver
+# and Gold), filters out default cluster wildcard routes and unencrypted (None) routes
+# to focus on custom vanity domains for TLS monitoring.
 #
 # Options:
-#   -C, --all-clusters   Query all distinct authenticated clusters in kubeconfig (e.g. Silver and Gold)
-#       --context <name> Target a specific kubeconfig context
-#   -a, --all            Include all routes (including cluster wildcard and unencrypted routes)
-#   -v, --vanity-only    Filter out cluster wildcard and unencrypted routes (default behavior)
-#   -u, --urls-only      Output only raw, unique URLs
-#   -j, --json           Output structured JSON array
-#   -h, --help           Display this help message and exit
+#   -c, --current-cluster Query only the active cluster context (default is all clusters)
+#       --context <name>  Target a specific kubeconfig context
+#   -C, --all-clusters    Query all distinct authenticated clusters in kubeconfig (default)
+#   -a, --all             Include all routes (including cluster wildcard and unencrypted routes)
+#   -v, --vanity-only     Filter out cluster wildcard and unencrypted routes (default behavior)
+#   -u, --urls-only       Output only raw, unique URLs
+#   -j, --json            Output structured JSON array
+#   -h, --help            Display this help message and exit
 #
 # Examples:
 #   ./list_routes.sh
-#   ./list_routes.sh -C
-#   ./list_routes.sh -C -u
+#   ./list_routes.sh -u
+#   ./list_routes.sh -c
 #   ./list_routes.sh -j
 #
 
 set -euo pipefail
 
-all_clusters=false
+all_clusters=true
 target_context=""
 vanity_only=true
 urls_only=false
@@ -37,33 +39,35 @@ show_help() {
 Usage: list_routes.sh [OPTIONS]
 
 Discover and inventory OpenShift routes across accessible namespaces.
-By default, filters out default cluster wildcard routes and unencrypted (None) routes
+By default, queries all distinct authenticated clusters in kubeconfig (e.g. Silver
+and Gold), filters out default cluster wildcard routes and unencrypted (None) routes
 to focus on custom vanity domains for TLS monitoring.
 
 Options:
-  -C, --all-clusters   Query all distinct authenticated clusters in kubeconfig (e.g. Silver and Gold)
-      --context <name> Target a specific kubeconfig context
-  -a, --all            Include all routes (including cluster wildcard and unencrypted routes)
-  -v, --vanity-only    Filter out cluster wildcard and unencrypted routes (default behavior)
-  -u, --urls-only      Output only raw, unique URLs
-  -j, --json           Output structured JSON array
-  -h, --help           Display this help message and exit
+  -c, --current-cluster Query only the active cluster context (default is all clusters)
+      --context <name>  Target a specific kubeconfig context
+  -C, --all-clusters    Query all distinct authenticated clusters in kubeconfig (default)
+  -a, --all             Include all routes (including cluster wildcard and unencrypted routes)
+  -v, --vanity-only     Filter out cluster wildcard and unencrypted routes (default behavior)
+  -u, --urls-only       Output only raw, unique URLs
+  -j, --json            Output structured JSON array
+  -h, --help            Display this help message and exit
 
 Examples:
-  # Display tabular vanity route inventory for current cluster
+  # Display tabular vanity route inventory across all authenticated clusters
   ./list_routes.sh
 
-  # Discover vanity routes across both Silver and Gold clusters
-  ./list_routes.sh -C
+  # Limit discovery to only the active cluster context
+  ./list_routes.sh -c
 
   # Extract combined unique vanity URLs across all clusters for certificate monitoring
-  ./list_routes.sh -C -u > all-vanity-urls.txt
+  ./list_routes.sh -u > all-vanity-urls.txt
 
   # Output routes across all clusters as structured JSON
-  ./list_routes.sh -C -j | jq .
+  ./list_routes.sh -j | jq .
 
   # Remote execution across all clusters
-  curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -C -u
+  curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -u
 EOF
 }
 
@@ -72,6 +76,10 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       show_help
       exit 0
+      ;;
+    -c|--current-cluster)
+      all_clusters=false
+      shift
       ;;
     -C|--all-clusters)
       all_clusters=true
@@ -82,6 +90,7 @@ while [[ $# -gt 0 ]]; do
         echo "Error: --context requires an argument." >&2
         exit 1
       fi
+      all_clusters=false
       target_context="$2"
       shift 2
       ;;
@@ -101,11 +110,12 @@ while [[ $# -gt 0 ]]; do
       json_output=true
       shift
       ;;
-    -[!-]* ) # grouped short flags (e.g. -Cu, -Ca, -Cj)
+    -[!-]* ) # grouped short flags (e.g. -cu, -ca, -cj, -Cu)
       for (( i=1; i<${#1}; i++ )); do
         opt="${1:$i:1}"
         case "$opt" in
           h) show_help; exit 0 ;;
+          c) all_clusters=false ;;
           C) all_clusters=true ;;
           a) vanity_only=false ;;
           v) vanity_only=true ;;
@@ -142,18 +152,6 @@ fi
 
 # Regex pattern matching default cluster wildcard domains to exclude when vanity_only is enabled
 CLUSTER_DOMAIN_PATTERN="${CLUSTER_DOMAIN_PATTERN:-(\.apps\..+\.gov\.bc\.ca|\.apps\..+\.openshiftapps\.com|\.devops\.bcgov|\.router\.default\.svc\.cluster\.local|\.svc\.cluster\.local|\.cluster\.local)$}"
-
-derive_cluster_alias() {
-  local srv="$1"
-  srv="${srv#http://}"
-  srv="${srv#https://}"
-  srv="${srv%%:[0-9]*}"
-  if [[ "$srv" =~ devops\.gov\.bc\.ca$ ]]; then
-    srv="${srv#api.}"
-    srv="${srv%.devops.gov.bc.ca}"
-  fi
-  echo "${srv:-default}"
-}
 
 # Collect target cluster contexts
 declare -a TARGET_CLUSTERS=()
