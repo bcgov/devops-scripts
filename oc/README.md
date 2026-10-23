@@ -56,13 +56,13 @@ curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/rights
 ```
 
 ### 5. `list_routes.sh`
-Queries all OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. By default, filters out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, `*.cluster.local`) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
+Queries all OpenShift namespaces accessible to the active `oc` session (`oc projects -q`), extracts all Routes with TLS termination and URL information, and outputs clean tabular, JSON, or unique URL list data. By default, filters out default cluster wildcard domains (`*.apps.*.gov.bc.ca`, `*.devops.bcgov`, `*.router.default.svc.cluster.local`, `*.cluster.local`) and unencrypted routes (`TERMINATION: None`) to isolate production vanity domains for TLS certificate monitoring and migration planning without requiring cluster-admin permissions.
 
 ```bash
 # Tabular vanity route inventory across all accessible namespaces:
 ./oc/list_routes.sh
 
-# Include all cluster wildcard routes as well:
+# Include all cluster wildcard and unencrypted HTTP routes as well:
 ./oc/list_routes.sh -a
 
 # Output raw unique vanity URLs (ideal for blackbox exporter or cert monitoring rules):
@@ -81,8 +81,8 @@ curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_r
 ```
 
 #### Options
-- `-a`, `--all`: Include all routes, including default cluster wildcard domains.
-- `-v`, `--vanity-only`: Filter out default cluster wildcard routes (`*.apps.*.gov.bc.ca`, `*.router.default.svc.cluster.local`, `*.cluster.local`). This is the default behavior. Can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
+- `-a`, `--all`: Include all routes, including default cluster wildcard domains and unencrypted (HTTP) routes.
+- `-v`, `--vanity-only`: Filter out default cluster wildcard routes and unencrypted routes (`TERMINATION: None`). This is the default behavior. Cluster patterns can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
 - `-u`, `--urls-only`: Output only raw, unique URLs.
 - `-j`, `--json`: Output structured JSON array.
 - `-h`, `--help`: Display usage and options.
