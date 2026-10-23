@@ -91,3 +91,60 @@ seed_github() {
   [[ "$output" == *"example-user@github"* ]]
   grep -q 'oc get rolebindings' "$STUB_LOG"
 }
+
+@test "offboard.sh multi-cluster groups OpenShift across clusters" {
+  seed_github
+  cat > "$FIXTURES/oc-config.json" <<'JSON'
+{
+  "current-context": "silver-ctx",
+  "contexts": [
+    {"name": "silver-ctx", "context": {"cluster": "silver-cluster"}},
+    {"name": "gold-ctx", "context": {"cluster": "gold-cluster"}}
+  ],
+  "clusters": [
+    {"name": "silver-cluster", "cluster": {"server": "https://api.silver.devops.gov.bc.ca:6443"}},
+    {"name": "gold-cluster", "cluster": {"server": "https://api.gold.devops.gov.bc.ca:6443"}}
+  ]
+}
+JSON
+  printf 'silver-ns\n' > "$FIXTURES/oc-projects-silver-ctx"
+  printf 'gold-ns\n' > "$FIXTURES/oc-projects-gold-ctx"
+  echo '{"items":[{"metadata":{"name":"rb-silver"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"first.last@gov.bc.ca"}]}]}' > "$FIXTURES/silver-ctx-rb-silver-ns"
+  echo '{"items":[{"metadata":{"name":"rb-gold"},"roleRef":{"name":"edit"},"subjects":[{"kind":"User","name":"first.last@gov.bc.ca"}]}]}' > "$FIXTURES/gold-ctx-rb-gold-ns"
+
+  run "$SCRIPT" 'example-user=first.last'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"== example-user=first.last"* ]]
+  [[ "$output" == *"GitHub: example-user"* ]]
+  [[ "$output" == *"OpenShift: first.last"* ]]
+  [[ "$output" == *"   - [silver] silver-ns: rb-silver -> admin"* ]]
+  [[ "$output" == *"   - [gold] gold-ns: rb-gold -> edit"* ]]
+  echo "$output" | grep -qx 'oc --context silver-ctx adm policy remove-role-from-user admin first.last@gov.bc.ca -n silver-ns'
+  echo "$output" | grep -qx 'oc --context gold-ctx adm policy remove-role-from-user edit first.last@gov.bc.ca -n gold-ns'
+}
+
+@test "offboard.sh -c passes through single cluster mode" {
+  seed_github
+  cat > "$FIXTURES/oc-config.json" <<'JSON'
+{
+  "current-context": "silver-ctx",
+  "contexts": [
+    {"name": "silver-ctx", "context": {"cluster": "silver-cluster"}},
+    {"name": "gold-ctx", "context": {"cluster": "gold-cluster"}}
+  ],
+  "clusters": [
+    {"name": "silver-cluster", "cluster": {"server": "https://api.silver.devops.gov.bc.ca:6443"}},
+    {"name": "gold-cluster", "cluster": {"server": "https://api.gold.devops.gov.bc.ca:6443"}}
+  ]
+}
+JSON
+  printf 'silver-ns\n' > "$FIXTURES/oc-projects"
+  echo '{"items":[{"metadata":{"name":"rb-silver"},"roleRef":{"name":"admin"},"subjects":[{"kind":"User","name":"first.last@gov.bc.ca"}]}]}' > "$FIXTURES/rb-silver-ns"
+
+  run "$SCRIPT" -c 'example-user=first.last'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"OpenShift: first.last"* ]]
+  [[ "$output" == *"   - silver-ns: rb-silver -> admin"* ]]
+  [[ "$output" != *"   - [silver]"* ]]
+  echo "$output" | grep -qx 'oc adm policy remove-role-from-user admin first.last@gov.bc.ca -n silver-ns'
+}

@@ -1,6 +1,6 @@
 # Offboarding
 
-`offboard.sh` runs both reports, one block per person. The two scripts underneath share no calls.
+`offboard.sh` runs both reports, one block per person. The two scripts underneath share no calls. By default, queries all distinct authenticated OpenShift clusters in kubeconfig (e.g. Silver and Gold).
 
 ```bash
 ./offboard/offboard.sh
@@ -15,9 +15,15 @@
   MCatherine1994 \
   thermcampos \
   rmcampos
+
+# Limit OpenShift discovery to active cluster context:
+./offboard/offboard.sh -c gpascucci=greg.pascucci
+
+# Target a specific OpenShift context directly:
+./offboard/offboard.sh --context gold-ctx gpascucci=greg.pascucci
 ```
 
-Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped. Pass `--org-owner` to include GitHub org and team DELETE commands.
+Names joined with `=` belong to one person. Each name is searched for as written. An OpenShift subject matches when it contains the name. No suffix is added. A name that is a valid GitHub login is also sent to the GitHub audit. If `oc` is not logged in, the GitHub blocks are still printed and OpenShift is skipped. Pass `--org-owner` to include GitHub org and team DELETE commands. Pass `-c` or `--current-cluster` to limit OpenShift discovery to the active cluster context, or `--context <name>` to target a specific context. Pass `-C` or `--all-clusters` for multi-cluster (default).
 
 ## `offboard-github.sh`
 
@@ -68,19 +74,28 @@ Limits: only what your login can see; repository access needs push access; code 
 
 ## `offboard-openshift.sh`
 
-RoleBindings on the cluster your `oc` login points at. Run this on the machine where that login exists.
+RoleBindings across distinct authenticated OpenShift clusters in your kubeconfig (e.g. Silver and Gold). Run this on the machine where those logins exist.
 
 ```bash
-oc login ...
+# Query all distinct authenticated clusters in kubeconfig (default):
 ./offboard/offboard-openshift.sh --name thermcampos --name rmcampos --name greg.pascucci
+
+# Limit discovery to only the active cluster context:
+./offboard/offboard-openshift.sh -c --name greg.pascucci
+
+# Target a specific kubeconfig context directly:
+./offboard/offboard-openshift.sh --context gold-ctx --name greg.pascucci
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `--name STRING` | Name to search for (repeatable). A User subject matches when it contains the name. |
+| `-c`, `--current-cluster` | Query only the active cluster context (default queries all authenticated clusters in kubeconfig). |
+| `--context <name>` | Target a specific kubeconfig context directly. |
+| `-C`, `--all-clusters` | Query all distinct authenticated clusters in kubeconfig (default behavior). |
 | `--json` | JSON output instead of text. |
 
-Matching ignores case. No suffix is added. Each name is its own section, and the detail line is `binding -> role`. The `oc` command is printed at column 0 after that name; the audit does not run it. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error.
+Matching ignores case. No suffix is added. Each name is its own section, and the detail line is `binding -> role` (with `[cluster]` prepended in multi-cluster runs). The `oc` command is printed at column 0 after that name (including `--context <name>` when targeting non-default or specific contexts); the audit does not run it. RoleBindings are read once per namespace. Exit codes match the GitHub script, except `3` means an `oc` call failed. `oc` not logged in is a usage error. Multi-cluster mode gracefully skips unreachable or unauthenticated clusters with a warning to stderr.
 
 Requires `oc` logged in, and `jq`.
 
