@@ -62,25 +62,28 @@ Queries all OpenShift namespaces accessible to the active `oc` session (`oc proj
 # Tabular vanity route inventory across all accessible namespaces:
 ./oc/list_routes.sh
 
+# Discover vanity routes across both Silver and Gold clusters:
+./oc/list_routes.sh -C
+
 # Include all cluster wildcard and unencrypted HTTP routes as well:
 ./oc/list_routes.sh -a
 
-# Output raw unique vanity URLs (ideal for blackbox exporter or cert monitoring rules):
-./oc/list_routes.sh -u
+# Output raw unique vanity URLs across all clusters (ideal for blackbox exporter or cert monitoring rules):
+./oc/list_routes.sh -C -u
 
-# Output structured JSON:
-./oc/list_routes.sh -j | jq .
+# Output structured JSON across all clusters:
+./oc/list_routes.sh -C -j | jq .
 
-# Remote execution (without cloning the repository):
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash
+# Remote execution across all clusters (without cloning the repository):
+curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -C -u
 
-# Remote execution with flags:
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -u
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -a
-curl -fsSL https://raw.githubusercontent.com/bcgov/devops-scripts/main/oc/list_routes.sh | bash -s -- -j | jq .
+# Target a specific context:
+./oc/list_routes.sh --context gold-ctx
 ```
 
 #### Options
+- `-C`, `--all-clusters`: Query all distinct authenticated clusters in kubeconfig (e.g. Silver and Gold). In tabular view, prepends a `CLUSTER` column.
+- `--context <name>`: Target a specific kubeconfig context without changing active context.
 - `-a`, `--all`: Include all routes, including default cluster wildcard domains and unencrypted (HTTP) routes.
 - `-v`, `--vanity-only`: Filter out default cluster wildcard routes and unencrypted routes (`TERMINATION: None`). This is the default behavior. Cluster patterns can be overridden or extended with `CLUSTER_DOMAIN_PATTERN`.
 - `-u`, `--urls-only`: Output only raw, unique URLs.
@@ -94,6 +97,14 @@ Tabular (`./oc/list_routes.sh`):
 NAMESPACE     NAME           TERMINATION  URL
 c38e9a-prod   frontend-prod  Edge         https://service.gov.bc.ca
 c38e9a-prod   api-prod       Reencrypt    https://service.gov.bc.ca/api
+```
+
+Multi-Cluster Tabular (`./oc/list_routes.sh -C`):
+```text
+CLUSTER  NAMESPACE     NAME           TERMINATION  URL
+gold     a4b31c-prod   fom-prod-admin Edge         https://fom.nrs.gov.bc.ca/admin
+silver   c38e9a-prod   frontend-prod  Edge         https://service.gov.bc.ca
+silver   c38e9a-prod   api-prod       Reencrypt    https://service.gov.bc.ca/api
 ```
 
 Include all cluster routes (`./oc/list_routes.sh -a`):
