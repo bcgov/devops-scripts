@@ -2,9 +2,58 @@
 # Test stub for oc. Logs every call to $STUB_LOG.
 set -euo pipefail
 echo "oc $*" >> "${STUB_LOG}"
-case "$1" in
-  whoami) exit "${OC_WHOAMI_RC:-1}" ;;
-  projects) cat "${FIXTURES}/oc-projects" ;;
-  get) ns="${4:-}"; [[ -f "${FIXTURES}/rb-${ns}" ]] || { echo "Forbidden" >&2; exit 1; }; cat "${FIXTURES}/rb-${ns}" ;;
+
+context=""
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --context) context="$2"; shift 2 ;;
+    --context=*) context="${1#--context=}"; shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]}"
+
+case "${1:-}" in
+  whoami)
+    if [[ -n "$context" && -f "${FIXTURES}/whoami-${context}-rc" ]]; then
+      exit "$(cat "${FIXTURES}/whoami-${context}-rc")"
+    fi
+    exit "${OC_WHOAMI_RC:-1}" ;;
+  config)
+    if [[ "${2:-}" == "view" ]]; then
+      if [[ -f "${FIXTURES}/oc-config.json" ]]; then
+        cat "${FIXTURES}/oc-config.json"
+      else
+        echo '{}'
+      fi
+      exit 0
+    fi
+    echo "stub oc: unexpected config subcommand: $*" >&2; exit 98 ;;
+  projects)
+    if [[ -n "$context" && -f "${FIXTURES}/oc-projects-${context}" ]]; then
+      cat "${FIXTURES}/oc-projects-${context}"
+    elif [[ -f "${FIXTURES}/oc-projects" ]]; then
+      cat "${FIXTURES}/oc-projects"
+    else
+      exit 0
+    fi ;;
+  get)
+    ns=""
+    shift
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -n) ns="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    if [[ -n "$context" && -f "${FIXTURES}/${context}-rb-${ns}" ]]; then
+      cat "${FIXTURES}/${context}-rb-${ns}"
+    elif [[ -n "$ns" && -f "${FIXTURES}/rb-${ns}" ]]; then
+      cat "${FIXTURES}/rb-${ns}"
+    else
+      echo "Forbidden" >&2
+      exit 1
+    fi ;;
   *) echo "stub oc: unexpected: $*" >&2; exit 98 ;;
 esac

@@ -9,7 +9,7 @@ OC_SCRIPT="${DIR}/offboard-openshift.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  offboard.sh [--org=bcgov,bcgov-c] [--org-owner] PERSON [PERSON...]
+  offboard.sh [--org=bcgov,bcgov-c] [--org-owner] [-c|--current-cluster] [--context <name>] [-C|--all-clusters] PERSON [PERSON...]
 
 A person is a GitHub login, or several names joined with = :
   gpascucci=greg.pascucci
@@ -18,6 +18,9 @@ Each name is searched for as written. OpenShift matches when the User
 subject contains the name. No suffix is added. Names that are valid GitHub
 logins are also sent to the GitHub audit. Matching ignores case.
 
+-c, --current-cluster limits OpenShift discovery to the active cluster context.
+--context <name> targets a specific kubeconfig context directly.
+-C, --all-clusters queries all distinct authenticated clusters in kubeconfig (default).
 --org-owner includes GitHub org and team DELETE commands (needs an org
 owner or team admin). Default: omit those commands. Membership is still listed.
 --org selects GitHub organizations (repeatable, comma-separated). Default:
@@ -45,11 +48,18 @@ add_orgs() {
 PERSONS=()
 ORG_OWNER=false
 ORGS=()
+all_clusters=true
+target_context=""
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --org-owner) ORG_OWNER=true; shift ;;
     --org) [[ $# -ge 2 ]] || die "--org needs a value"; add_orgs "$2"; shift 2 ;;
     --org=*) add_orgs "${1#--org=}"; shift ;;
+    -c|--current-cluster) all_clusters=false; shift ;;
+    -C|--all-clusters) all_clusters=true; shift ;;
+    --context) [[ $# -ge 2 ]] || die "--context needs a value"; all_clusters=false; target_context="$2"; shift 2 ;;
+    --context=*) all_clusters=false; target_context="${1#--context=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; PERSONS+=("$@"); break ;;
     -*) usage >&2; die "unknown option: $1" ;;
@@ -114,21 +124,53 @@ fi
 
 oc_rc=0
 ran_oc=false
-if ! command -v oc >/dev/null 2>&1 || ! oc whoami >/dev/null 2>&1; then
+oc_clusters_checked=1
+
+print_oc_skip() {
   echo "OpenShift skipped: oc is not logged in"
   echo "Run this where oc is logged in:"
   printf '%q' "$OC_SCRIPT"
+  if [[ "$all_clusters" == false ]]; then
+    if [[ -n "$target_context" ]]; then
+      printf ' --context %q' "$target_context"
+    else
+      printf ' -c'
+    fi
+  fi
   for n in "${NEEDLES[@]}"; do printf ' --name %q' "$n"; done
   printf '\n'
+}
+
+if ! command -v oc >/dev/null 2>&1; then
+  print_oc_skip
 else
-  ran_oc=true
   set +e
   oc_cmd=("$OC_SCRIPT" --json)
+  if [[ "$all_clusters" == false ]]; then
+    if [[ -n "$target_context" ]]; then
+      oc_cmd+=(--context "$target_context")
+    else
+      oc_cmd+=(-c)
+    fi
+  else
+    oc_cmd+=(-C)
+  fi
   for n in "${NEEDLES[@]}"; do oc_cmd+=(--name "$n"); done
-  "${oc_cmd[@]}" > "$OC_OUT"
+  oc_err_file="${TMPD}/oc_err.log"
+  "${oc_cmd[@]}" > "$OC_OUT" 2> "$oc_err_file"
   oc_rc=$?
   set -e
-  jq -e . "$OC_OUT" >/dev/null 2>&1 || echo '{"sections":[],"notes":[]}' > "$OC_OUT"
+  if [[ "$oc_rc" -eq 2 ]] && grep -q "not logged in" "$oc_err_file" 2>/dev/null; then
+    print_oc_skip
+    oc_rc=0
+  else
+    ran_oc=true
+    if [[ -s "$oc_err_file" ]]; then
+      cat "$oc_err_file" >&2
+    fi
+    jq -e . "$OC_OUT" >/dev/null 2>&1 || echo '{"sections":[],"notes":[]}' > "$OC_OUT"
+    oc_clusters_checked="$(jq -r '.clusters_checked // 1' "$OC_OUT" 2>/dev/null || echo 1)"
+  fi
 fi
 
 gh_titles='
@@ -190,9 +232,15 @@ while [[ $i -lt ${#P_SPEC[@]} ]]; do
       if [[ "$oc_rc" -eq 3 ]]; then
         echo "   OpenShift audit failed"
       else
-        block="$(jq -r --arg u "$part" '
+        block="$(jq -r --arg u "$part" --argjson multi "$([[ "$all_clusters" == true && "$oc_clusters_checked" -gt 1 ]] && echo true || echo false)" '
           .sections[] | select(.name == $u) | .findings
-          | if length == 0 then empty else .[] | "   - \(.target): \(.detail)" end
+          | if length == 0 then empty else .[]
+            | (if $multi and (.cluster // "") != "" and .cluster != "current" then
+                 "   - [\(.cluster)] \(.target): \(.detail)"
+               else
+                 "   - \(.target): \(.detail)"
+               end)
+            end
         ' "$OC_OUT")"
         if [[ -n "$block" ]]; then echo "$block"; else echo "   nothing found"; fi
         jq -r --arg u "$part" '
