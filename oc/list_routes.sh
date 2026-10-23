@@ -6,11 +6,11 @@
 #
 # Discovers and inventories OpenShift routes across all namespaces accessible
 # to the active oc session. By default, filters out default cluster wildcard routes
-# to focus on custom vanity domains for TLS monitoring.
+# and unencrypted (None) routes to focus on custom vanity domains for TLS monitoring.
 #
 # Options:
-#   -a, --all            Include all routes (including default cluster wildcard routes)
-#   -v, --vanity-only    Filter out default cluster wildcard routes (default behavior)
+#   -a, --all            Include all routes (including cluster wildcard and unencrypted routes)
+#   -v, --vanity-only    Filter out cluster wildcard and unencrypted routes (default behavior)
 #   -u, --urls-only      Output only raw, unique URLs
 #   -j, --json           Output structured JSON array
 #   -h, --help           Display this help message and exit
@@ -33,11 +33,12 @@ show_help() {
 Usage: list_routes.sh [OPTIONS]
 
 Discover and inventory OpenShift routes across all accessible namespaces.
-By default, filters out default cluster wildcard routes to focus on custom vanity domains.
+By default, filters out default cluster wildcard routes and unencrypted (None) routes
+to focus on custom vanity domains for TLS monitoring.
 
 Options:
-  -a, --all            Include all routes (including default cluster wildcard routes)
-  -v, --vanity-only    Filter out default cluster wildcard routes (default behavior)
+  -a, --all            Include all routes (including cluster wildcard and unencrypted routes)
+  -v, --vanity-only    Filter out cluster wildcard and unencrypted routes (default behavior)
   -u, --urls-only      Output only raw, unique URLs
   -j, --json           Output structured JSON array
   -h, --help           Display this help message and exit
@@ -46,7 +47,7 @@ Examples:
   # Display tabular vanity route inventory across accessible namespaces
   ./list_routes.sh
 
-  # Include all cluster wildcard routes as well
+  # Include all cluster wildcard and unencrypted routes as well
   ./list_routes.sh -a
 
   # Extract unique vanity URLs for certificate monitoring (e.g. Prometheus rules)
@@ -123,7 +124,7 @@ if ! oc whoami >/dev/null 2>&1; then
 fi
 
 # Regex pattern matching default cluster wildcard domains to exclude when vanity_only is enabled
-CLUSTER_DOMAIN_PATTERN="${CLUSTER_DOMAIN_PATTERN:-(\.apps\..+\.gov\.bc\.ca|\.apps\..+\.openshiftapps\.com|\.router\.default\.svc\.cluster\.local|\.svc\.cluster\.local|\.cluster\.local)$}"
+CLUSTER_DOMAIN_PATTERN="${CLUSTER_DOMAIN_PATTERN:-(\.apps\..+\.gov\.bc\.ca|\.apps\..+\.openshiftapps\.com|\.devops\.bcgov|\.router\.default\.svc\.cluster\.local|\.svc\.cluster\.local|\.cluster\.local)$}"
 
 # Query accessible namespaces
 if ! projects=$(oc projects -q 2>&1); then
@@ -196,7 +197,7 @@ parsed_json=$(
     | map(
         select(
           if $vanity_only then
-            (.host != "") and (.host | test($cluster_pattern) | not)
+            (.host != "") and (.termination != "None") and (.host | test($cluster_pattern) | not)
           else
             true
           end
