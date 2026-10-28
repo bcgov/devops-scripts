@@ -128,6 +128,11 @@ call() {
 }
 api_error() { fail "gh api $1 failed (HTTP ${API_STATUS}): $(tail -n 1 "$ERRF")"; }
 
+# CODEOWNERS TSV (path, line, text) on stdin; prints rows where text, minus any '#' comment, names @login ($1)
+co_match() {
+  awk -F'\t' -v u="$1" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }'
+}
+
 search_call() {
   local kind="$1" attempt reset now
   shift
@@ -285,7 +290,7 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
         [[ -n "${SEEN_CO[$key]:-}" ]] && continue
         SEEN_CO[$key]=1
         finding "$u" codeowners "$r" "$path" ""
-      done < <(awk -F'\t' -v u="$lu" '{ l = tolower($3); sub(/#.*/, "", l); n = split(l, w, /[ \t]+/); for (k = 1; k <= n; k++) if (w[k] == "@" u) { print; next } }' "$d/codeowners")
+      done < <(co_match "$lu" < "$d/codeowners")
       while IFS=$'\t' read -r env type who; do
         [[ "$type" == "User" && "$(lower "$who")" == "$lu" ]] || continue
         finding "$u" environment-reviewer "$r" "environment ${env}: required reviewer" "${ENV_DROP} ${r} ${env} ${u}"
@@ -309,6 +314,9 @@ if [[ ${#LIVE[@]} -gt 0 ]]; then
       [[ -n "$repo" ]] || continue
       key="$(lower "$u") $(lower "$repo") $(lower "$path")"
       [[ -n "${SEEN_CO[$key]:-}" ]] && continue
+      # Search fragments can drop a leading '#', so confirm against the file itself
+      call -H 'Accept: application/vnd.github.raw' "repos/${repo}/contents/${path}" || api_error "repos/${repo}/contents/${path}"
+      [[ -n "$(printf '%s\n' "$API_OUT" | awk '{ print "-\t-\t" $0 }' | co_match "$lu")" ]] || continue
       SEEN_CO[$key]=1
       finding "$u" codeowners-search "$repo" "$path" ""
     done < <(printf '%s' "$API_OUT" | jq -r --arg re "(^|[^A-Za-z0-9-])@${lu}([^A-Za-z0-9-]|$)" \
