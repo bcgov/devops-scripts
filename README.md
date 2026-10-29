@@ -6,16 +6,17 @@ Scripts a person runs from a workstation with their own login (for example an ac
 
 ### Certificates ([`cert/`](cert))
 
+Use [actions-openshift `route-tls`](https://github.com/bcgov/actions-openshift/tree/main/route-tls) to install or renew a Route certificate. `install_cert.sh` was removed in its favour.
+
 - [`csr_generator.sh`](cert/csr_generator.sh): generate a private key and certificate signing request (CSR) for an OpenShift Route.
-- [`install_cert.sh`](cert/install_cert.sh): apply an edge Route with a custom TLS certificate, key and issuing CA.
 
 ### OpenShift and databases ([`oc/`](oc))
 
-- [`rename_deployment.sh`](oc/rename_deployment.sh): rename a deployment and its `deployment=` label selectors, restoring the original on failure.
-- [`oc_rename.sh`](oc/oc_rename.sh): rename an object of any type (deployment, statefulset, daemonset, replicaset or other), updating the matching label selector for workload types.
-- [`db_transfer.sh`](oc/db_transfer.sh): stream a `pg_dump` from one database deployment and restore it into another with `pg_restore`.
-- [`db_compare.sh`](oc/db_compare.sh): compare PostgreSQL table row counts between two database deployments.
-- [`rights_reporter.sh`](oc/rights_reporter.sh): report user role bindings and risk indicators across accessible namespaces.
+- [`rename_deployment.sh`](oc/rename_deployment.sh) (deprecated, pending removal): rename a deployment and its `deployment=` label selectors, restoring the original on failure.
+- [`oc_rename.sh`](oc/oc_rename.sh) (deprecated, pending removal): rename an object of any type (deployment, statefulset, daemonset, replicaset or other), updating the matching label selector for workload types.
+- [`db_transfer.sh`](oc/db_transfer.sh): stream a `pg_dump` from one database deployment and restore it into another with `pg_restore`. Manual fallback for `pg-upgrade`.
+- [`db_compare.sh`](oc/db_compare.sh): compare PostgreSQL table row counts between two database deployments. [actions-openshift `pg-upgrade`](https://github.com/bcgov/actions-openshift/tree/main/pg-upgrade) runs the same count check automatically.
+- [`rights_reporter.sh`](oc/rights_reporter.sh) (deprecated, pending removal): report user role bindings and risk indicators across accessible namespaces.
 - [`list_routes.sh`](oc/list_routes.sh): discover routes and extract vanity URLs across accessible namespaces without cluster-admin permissions.
 - Postgres migration walkthrough: [`oc/README.md`](oc/README.md)
 

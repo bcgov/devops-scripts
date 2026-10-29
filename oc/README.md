@@ -4,6 +4,8 @@ Standalone CLI scripts for OpenShift operations and PostgreSQL database manageme
 
 ## Scripts
 
+> `db_compare.sh` and `db_transfer.sh` stay as the manual check and fallback for [actions-openshift `pg-upgrade`](https://github.com/bcgov/actions-openshift/tree/main/pg-upgrade), which already runs the same per-table row-count check. `rename_deployment.sh`, `oc_rename.sh` and `rights_reporter.sh` are **deprecated** and will be removed unless someone still needs them.
+
 ### 1. `rename_deployment.sh`
 Renames an OpenShift deployment by exporting its manifest, updating metadata and label selectors (`deployment=...`), deleting the old deployment, and applying the new one.
 

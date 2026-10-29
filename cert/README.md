@@ -1,5 +1,7 @@
 # Setting Up a Vanity or Custom URL
 
+> **`install_cert.sh` has been removed.** To install or renew a Route certificate, use [bcgov/actions-openshift `route-tls`](https://github.com/bcgov/actions-openshift/tree/main/route-tls). It validates the PEMs (match, hostname, expiry), snapshots existing Route TLS to a Secret, and applies an edge Route with redirect. `route-tls` does not generate a private key or CSR, so `csr_generator.sh` stays here.
+
 ## Generating a Request
 
 Ticketing and administrative steps are for the Natural Resources only.  Other ministries will have their own processes.
@@ -46,13 +48,12 @@ After receiving certificates from your administrators (via JIRA response), you n
 
 ### Installation Steps
 
-You can install or update the certificate using either the CLI script or the OpenShift Web Console.
+You can install or update the certificate using either the `route-tls` GitHub Action or the OpenShift Web Console.
 
-**Method 1: Using the CLI Script (Recommended)**
+**Method 1: Using the `route-tls` GitHub Action (Recommended)**
 1. Ensure all required files are prepared with correct naming (see above)
-2. Login to [OpenShift](https://console.apps.silver.devops.gov.bc.ca/k8s/cluster/projects)
-3. Switch to the appropriate namespace: `oc project <namespace>`
-4. Install the certificate using `./install_cert.sh`
+2. Store them as `prod` environment secrets and add the standalone workflow described in the [`route-tls` README](https://github.com/bcgov/actions-openshift/tree/main/route-tls)
+3. Run the workflow with `dry_run=true`, then `dry_run=false`
 
 **Method 2: Updating via OpenShift Web Console (GUI)**
 1. Login to the OpenShift Web Console, switch to your namespace, and go to **Networking -> Routes**.
@@ -78,7 +79,7 @@ For certificate renewals, you need:
 - `<DOMAIN>.key` - Private key (required - must match the original certificate)
 - `<DOMAIN>.csr` - Certificate signing request (recommended to retain, but you can generate a new one using the same private key)
 
-Use `./install_cert.sh` as required for reinstallation or after renewals.
+Run the `route-tls` workflow as required for reinstallation or after renewals.
 
 
 ## Reference
