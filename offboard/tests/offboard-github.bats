@@ -30,6 +30,8 @@ seed_findings() {
  {"repository":{"full_name":"example-org/repo-four"},"path":"CODEOWNERS","text_matches":[{"fragment":"* @example-user-two"}]}
 ]}
 JSON
+  printf '* @example-user\n' > "$FIXTURES/contents-repo-three"
+  printf '* @example-user-two\n' > "$FIXTURES/contents-repo-four"
 }
 
 @test "no arguments is a usage error" {
@@ -247,4 +249,13 @@ JSON
   run "${BATS_TEST_DIRNAME}/../github-drop-env-reviewer.sh" example-org/repo-one prod example-user
   [ "$status" -eq 0 ]
   grep -q -- '-X PUT repos/example-org/repo-one/environments/prod' "$STUB_LOG"
+}
+
+@test "CODEOWNERS mentions only inside comments are not findings" {
+  printf 'example-org/repo-one\n' > "$FIXTURES/user-repos"
+  printf '# *  @example-user\n  # /.github/ @example-user\n' > "$FIXTURES/codeowners-repo-one"
+  printf '{"items":[{"repository":{"full_name":"example-org/repo-three"},"path":".github/codeowners","text_matches":[{"fragment":"*  @example-user"}]}]}' > "$FIXTURES/search-code"
+  printf '# *  @example-user\n  # /.github/ @example-user\n' > "$FIXTURES/contents-repo-three"
+  run --separate-stderr "$SCRIPT" --json example-user
+  echo "$output" | jq -e '[.users[0].findings[] | select(.check | startswith("codeowners"))] | length == 0'
 }

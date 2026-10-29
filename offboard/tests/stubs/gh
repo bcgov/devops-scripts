@@ -60,6 +60,7 @@ case "$args" in
     if [[ "$args" == *-X\ PUT* ]]; then echo '{}'; exit 0; fi
     if [[ "$args" == *'environments?per_page'* ]]; then repo="${args#*repos/*/}"; emit "env-${repo%%/*}"; fi
     emit env-one ;;
+  *contents/*) repo="${args#*repos/*/}"; emit "contents-${repo%%/*}" 404 ;;
   *search/code*) [[ -f "${FIXTURES}/search-code" ]] && emit search-code; echo '{"items":[]}' ;;
   rate_limit*) date +%s ;;
   *) echo "stub gh: unexpected api call: $args" >&2; exit 98 ;;
