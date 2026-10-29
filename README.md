@@ -4,12 +4,11 @@ Scripts a person runs from a workstation with their own login (for example an ac
 
 ## Scripts
 
-### Certificates ([`cert/`](cert)) — deprecated
+### Certificates ([`cert/`](cert))
 
-Use [actions-openshift `route-tls`](https://github.com/bcgov/actions-openshift/tree/main/route-tls) to install or renew a Route certificate. `cert/` will be removed once CSR generation has another home.
+Use [actions-openshift `route-tls`](https://github.com/bcgov/actions-openshift/tree/main/route-tls) to install or renew a Route certificate. `install_cert.sh` was removed in its favour.
 
 - [`csr_generator.sh`](cert/csr_generator.sh): generate a private key and certificate signing request (CSR) for an OpenShift Route.
-- [`install_cert.sh`](cert/install_cert.sh) (deprecated, use `route-tls`): apply an edge Route with a custom TLS certificate, key and issuing CA.
 
 ### OpenShift and databases ([`oc/`](oc))
 
