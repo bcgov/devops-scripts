@@ -10,6 +10,7 @@
 
 # Strict mode: exit on error, unset vars, or failed pipes
 set -euo pipefail
+echo "WARNING: oc_rename.sh is deprecated and pending removal." >&2
 
 # Show usage from header if not enough arguments
 if [[ $# -lt 2 ]]; then

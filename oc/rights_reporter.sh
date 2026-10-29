@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+echo "WARNING: rights_reporter.sh is deprecated and pending removal." >&2
 
 # This script reports on rights in OpenShift projects
 # Usage: ./rights_reporter.sh [roles]
