@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+echo "WARNING: install_cert.sh is deprecated; use bcgov/actions-openshift route-tls." >&2
 
 # Custom Domain Helper
 #

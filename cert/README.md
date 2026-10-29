@@ -1,5 +1,7 @@
 # Setting Up a Vanity or Custom URL
 
+> **Deprecated.** To install or renew a Route certificate, use [bcgov/actions-openshift `route-tls`](https://github.com/bcgov/actions-openshift/tree/main/route-tls) instead of `install_cert.sh`. It validates the PEMs (match, hostname, expiry), snapshots existing Route TLS to a Secret, and applies an edge Route with redirect. `route-tls` does not generate a private key or CSR, so `csr_generator.sh` stays until that step has another home; this directory will be removed after that.
+
 ## Generating a Request
 
 Ticketing and administrative steps are for the Natural Resources only.  Other ministries will have their own processes.
